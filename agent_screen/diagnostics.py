@@ -1,0 +1,31 @@
+"""Opt-in packaged browser smoke check, no AI and no external web requests."""
+import json
+from pathlib import Path
+import tempfile
+
+
+def browser_check(report):
+    from . import browser_mode, __version__
+    original = browser_mode.data_dir
+    result = {"version": __version__, "ok": False}
+    session = browser_mode.BrowserSession()
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            browser_mode.data_dir = lambda: Path(tmp)
+            try:
+                session.start()
+                session.page.set_content("<input style='position:absolute;left:40px;top:40px;width:300px;height:80px' id='check'>")
+                session.screenshot(1280, 60, True)
+                session.execute("mouse_click", {"x": 100, "y": 70})
+                session.execute("type_text", {"text": "Bonjour été"})
+                assert session.page.locator("#check").input_value() == "Bonjour été"
+                result["ok"] = True
+                result["checks"] = ["browser launch", "screenshot", "page click", "unicode input"]
+            finally:
+                session.close()
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+    finally:
+        browser_mode.data_dir = original
+        Path(report).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result["ok"]
