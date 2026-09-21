@@ -42,6 +42,10 @@ def shots_dir() -> Path:
     return d
 
 
+def conversations_file() -> Path:
+    return data_dir() / "conversations.json"
+
+
 def legacy_config_candidates():
     """Configs written by earlier versions (v1.0-1.2) that may hold keys.
 

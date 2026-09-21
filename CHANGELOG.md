@@ -1,5 +1,14 @@
 # Historique
 
+## 1.8.0
+
+- Discussions du Chat enregistrées localement et restaurées après redémarrage.
+- Barre latérale pour créer, ouvrir et supprimer une discussion.
+- Discussions favorites épinglées en haut, sans appel IA supplémentaire.
+- Titres créés localement à partir du premier message, sans coût API.
+- Mode éco Chat activé par défaut : 6 messages précédents et réponses limitées à 700 tokens.
+- Réglages du contexte et de la longueur maximale dans Paramètres.
+
 ## 1.7.0
 
 - Nouveau nom affiché : **Projet 4, agent IA**.

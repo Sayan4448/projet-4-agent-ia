@@ -11,7 +11,7 @@
 ## MSI (recommandé)
 
 Dans la page **Releases** du dépôt, ouvrir la dernière version puis **Assets**.
-Télécharger `Projet4-AgentIA-1.7.0.msi`, puis l’exécuter. L’assistant installe
+Télécharger `Projet4-AgentIA-1.8.0.msi`, puis l’exécuter. L’assistant installe
 l’application dans Program Files et crée des raccourcis Bureau et menu Démarrer.
 L’installation machine peut demander l’autorisation administrateur.
 
@@ -51,6 +51,7 @@ Les données utilisateur ne sont pas supprimées automatiquement.
 | Configuration et clés | `%LOCALAPPDATA%\AgentScreen\data\config.json` |
 | Captures bureau | `%LOCALAPPDATA%\AgentScreen\data\shots\` |
 | Profil du navigateur dédié | `%LOCALAPPDATA%\AgentScreen\data\browser-profile\` |
+| Discussions et favoris | `%LOCALAPPDATA%\AgentScreen\data\conversations.json` |
 | Variables optionnelles | `%LOCALAPPDATA%\AgentScreen\.env` |
 
 En développement, ces dossiers sont dans `data/` à la racine du projet. Les captures

@@ -66,4 +66,12 @@ en arrière-plan, sans exécuter sa réponse. Les navigations/commandes en cours
 ## Chat
 
 Choisir l’onglet Chat. Cocher l’option de capture si l’on veut joindre le bureau au message.
-**Effacer l’historique** écarte également les réponses obsolètes encore en attente.
+La colonne **Discussions** permet de créer, rouvrir, supprimer et mettre une discussion
+en favori. Les favoris sont épinglés en haut. Les titres sont produits localement depuis
+le premier message, donc sans requête IA. Tout reste dans `conversations.json` sur le PC.
+
+Le mode éco Chat est activé par défaut : seuls les 6 messages précédents sont renvoyés
+au modèle et la réponse est limitée à 700 tokens. Paramètres permet de choisir 0 à 20
+messages et 128 à 4096 tokens. Une petite valeur économise généralement les crédits,
+mais peut faire oublier des informations anciennes. Une capture reste l’élément le plus
+lourd : la joindre seulement lorsqu’elle est utile.

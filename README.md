@@ -8,7 +8,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows_10%2F11-x64-8b5cf6)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
-![Version](https://img.shields.io/badge/version-1.7.0-a78bfa)
+![Version](https://img.shields.io/badge/version-1.8.0-a78bfa)
 
 [Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md)
 
@@ -36,10 +36,11 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 | **IA cloud** | Gemini, OpenAI, Anthropic, Groq, DeepSeek et OpenRouter ; rotation des clés en cas d’échec. |
 | **IA locale** | Ollama et LM Studio, adresse configurable, liste des modèles et test de connexion. |
 | **Chat** | Conversation et analyse de captures jointes. |
+| **Discussions** | Historique local, favoris, création, réouverture et suppression. |
 
 ## Installation rapide
 
-1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.7.0.msi`.
+1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.8.0.msi`.
 2. Lancer le MSI puis ouvrir **Projet 4, agent IA** depuis le Bureau ou le menu Démarrer.
 3. Dans **Paramètres**, choisir un fournisseur, charger les modèles, sélectionner un
    modèle puis **Tester la connexion**. Pour les captures, il faut un modèle avec vision.
@@ -58,6 +59,10 @@ est conservé pour les mises à jour ; l’application porte bien le nom **Proje
 - **Bureau** : « Ouvre le Bloc-notes et écris Bonjour. »
 - **Navigateur** : « Recherche la météo à Lyon et résume les prévisions. »
 - **Chat** : « Explique-moi ce message d’erreur » avec une capture jointe.
+
+Les discussions du Chat sont conservées localement. Le titre est créé sans IA et les
+favoris restent en haut. Le mode éco Chat envoie par défaut seulement les 6 messages
+précédents et limite la réponse à 700 tokens ; ces valeurs sont réglables.
 
 Le mode navigateur utilise son propre profil, distinct de vos profils personnels.
 Il ouvre une fenêtre dédiée et la ferme à la fin de la tâche. Les connexions conservées

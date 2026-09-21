@@ -23,6 +23,7 @@ nécessaire pour lancer l’interface native.
 | `run_app.py` | Point d’entrée graphique et PyInstaller |
 | `agent_screen/__main__.py` | Lancement par `python -m agent_screen` |
 | `agent_screen/gui.py` | Interface native, événements, paramètres et Chat |
+| `agent_screen/conversations.py` | Discussions locales, favoris et écriture atomique |
 | `agent_screen/overlay.py` | Curseur transparent aux clics et bandeau d’activité |
 | `agent_screen/agent.py` | Boucle IA, vocabulaire d’actions, Stop, lots et historique |
 | `agent_screen/browser_mode.py` | Session navigateur dédiée, liste d’actions autorisées |

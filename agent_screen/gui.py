@@ -30,6 +30,7 @@ from .paths import app_root, load_dotenv_if_present
 from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_providers, load,
                        migrate_legacy_keys, save, LOCAL_PROVIDERS)
 from .overlay import AgentOverlay
+from . import conversations
 
 PROVIDER_LABELS = {
     "gemini": "Google Gemini",
@@ -278,6 +279,8 @@ class App:
         self._ghost = None
         self.overlay = None
         self.chat_history = []
+        self.chat_conversations = conversations.load_all()
+        self.chat_current = conversations.new_conversation()
         self.chat_sending = False
         self._chat_generation = 0
         self._web_starting = False
@@ -829,11 +832,17 @@ class App:
             eff_p = msg.get("provider", "")
             prov_tag = f" [{PROVIDER_LABELS.get(eff_p, eff_p)}]" if eff_p else ""
             if not is_error:
-                self.chat_history.append(("assistant", text))
-                self._chat_append(f"🤖 Agent Screen{prov_tag}", text, "assistant")
+                self.chat_history.append(("assistant", text, eff_p))
+                self._chat_append(f"🤖 Projet 4{prov_tag}", text, "assistant")
+                self._persist_chat()
             else:
                 if self.chat_history and self.chat_history[-1][0] == "user":
                     self.chat_history.pop()
+                    if self.chat_history:
+                        self._persist_chat()
+                    else:
+                        conversations.delete(self.chat_current["id"])
+                        self._refresh_chat_list(False)
                 self._chat_append(T(self.lang, "chat_error"), text, "error")
 
             self.chat_sending = False
@@ -873,8 +882,31 @@ class App:
     # ------------------------------------------------------------ chat tab
     def _build_chat_tab(self):
         tab = self.tab_chat
-        tab.columnconfigure(0, weight=1)
+        tab.columnconfigure(1, weight=1)
         tab.rowconfigure(0, weight=1)
+
+        sidebar = ttk.Frame(tab, width=260, padding=(0, 0, 10, 0))
+        sidebar.grid(row=0, column=0, rowspan=2, sticky="nsw")
+        sidebar.grid_propagate(False)
+        ttk.Label(sidebar, text="Discussions", font=("Segoe UI", 12, "bold"),
+                  foreground=TXT).pack(anchor="w", pady=(4, 8))
+        ttk.Button(sidebar, text="＋ Nouvelle discussion", style="Accent.TButton",
+                   command=self._new_chat).pack(fill="x", pady=(0, 8))
+        self.chat_list = tk.Listbox(sidebar, width=33, background=CARD, foreground=TXT,
+                                    selectbackground=ACC, selectforeground="white", relief="flat",
+                                    highlightthickness=1, highlightbackground=LINE,
+                                    font=("Segoe UI", 9), activestyle="none")
+        self.chat_list.pack(fill="both", expand=True)
+        self.chat_list.bind("<<ListboxSelect>>", self._open_selected_chat)
+        side_actions = ttk.Frame(sidebar)
+        side_actions.pack(fill="x", pady=(8, 0))
+        self.chat_favorite_btn = ttk.Button(side_actions, text="☆ Favori", command=self._toggle_chat_favorite)
+        self.chat_favorite_btn.pack(side="left", expand=True, fill="x")
+        ttk.Button(side_actions, text="Supprimer", command=self._delete_chat).pack(
+            side="left", expand=True, fill="x", padx=(6, 0))
+        self.chat_cost = ttk.Label(sidebar, text="Mode éco Chat actif", foreground=OK,
+                                   wraplength=240, justify="left")
+        self.chat_cost.pack(anchor="w", pady=(8, 0))
 
         self.chat_view = tk.Text(tab, wrap="word", state="disabled",
                                  font=("Segoe UI", 10), background=FIELD, foreground=TXT,
@@ -887,11 +919,11 @@ class App:
 
         scroll = ttk.Scrollbar(tab, command=self.chat_view.yview)
         self.chat_view.configure(yscrollcommand=scroll.set)
-        self.chat_view.grid(row=0, column=0, sticky="nsew")
-        scroll.grid(row=0, column=1, sticky="ns")
+        self.chat_view.grid(row=0, column=1, sticky="nsew")
+        scroll.grid(row=0, column=2, sticky="ns")
 
         bottom = ttk.Frame(tab)
-        bottom.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        bottom.grid(row=1, column=1, columnspan=2, sticky="ew", pady=(10, 0))
         bottom.columnconfigure(0, weight=1)
 
         self.chat_status = ttk.Label(bottom, text=T(self.lang, "chat_intro"), foreground=MUT)
@@ -900,8 +932,8 @@ class App:
         self.attach_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bottom, text=T(self.lang, "attach"),
                         variable=self.attach_var).grid(row=0, column=1, sticky="e")
-        ttk.Button(bottom, text=T(self.lang, "clear_chat"), style="TButton",
-                   command=self._clear_chat).grid(row=0, column=2, padx=(10, 0))
+        ttk.Button(bottom, text="Nouvelle", style="TButton",
+                   command=self._new_chat).grid(row=0, column=2, padx=(10, 0))
 
         entry_row = ttk.Frame(bottom)
         entry_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
@@ -914,6 +946,85 @@ class App:
         self.chat_send = ttk.Button(entry_row, text=T(self.lang, "send"),
                                     style="Accent.TButton", command=self._send_chat)
         self.chat_send.grid(row=0, column=1, padx=(8, 0))
+        self._refresh_chat_list()
+
+    def _refresh_chat_list(self, select_current=True):
+        if not hasattr(self, "chat_list"):
+            return
+        self.chat_conversations = conversations.load_all()
+        self.chat_list.delete(0, "end")
+        current_index = None
+        for i, item in enumerate(self.chat_conversations):
+            self.chat_list.insert("end", ("★ " if item["favorite"] else "   ") + item["title"])
+            if item["id"] == self.chat_current["id"]:
+                current_index = i
+        if select_current and current_index is not None:
+            self.chat_list.selection_set(current_index)
+            self.chat_list.see(current_index)
+        self.chat_favorite_btn.config(text="★ Favori" if self.chat_current["favorite"] else "☆ Favori")
+
+    def _persist_chat(self):
+        if not self.chat_history:
+            return
+        self.chat_current["messages"] = [
+            {"role": role, "text": text, "provider": provider}
+            for role, text, provider in self.chat_history
+        ]
+        self.chat_current = conversations.save_conversation(self.chat_current)
+        self._refresh_chat_list()
+
+    def _render_chat(self):
+        self.chat_view.config(state="normal")
+        self.chat_view.delete("1.0", "end")
+        self.chat_view.config(state="disabled")
+        for role, text, provider in self.chat_history:
+            if role == "user":
+                self._chat_append("Vous" if self.lang == "fr" else "You", text, "user")
+            else:
+                tag = f" [{PROVIDER_LABELS.get(provider, provider)}]" if provider else ""
+                self._chat_append(f"🤖 Projet 4{tag}", text, "assistant")
+
+    def _new_chat(self):
+        self._persist_chat()
+        self._chat_generation += 1
+        self.chat_current = conversations.new_conversation()
+        self.chat_history = []
+        self.chat_sending = False
+        self.chat_send.config(state="normal")
+        self.chat_entry.config(state="normal")
+        self._render_chat()
+        self._refresh_chat_list(False)
+        self.chat_status.config(text=T(self.lang, "chat_intro"), foreground=MUT)
+
+    def _open_selected_chat(self, _event=None):
+        selected = self.chat_list.curselection()
+        if not selected or self.chat_sending:
+            return
+        target = self.chat_conversations[selected[0]]
+        if target["id"] == self.chat_current["id"]:
+            return
+        self._persist_chat()
+        self._chat_generation += 1
+        self.chat_current = target
+        self.chat_history = [(m["role"], m["text"], m.get("provider", ""))
+                             for m in target["messages"]]
+        self._render_chat()
+        self._refresh_chat_list()
+
+    def _toggle_chat_favorite(self):
+        if not self.chat_history:
+            return
+        self.chat_current["favorite"] = not self.chat_current["favorite"]
+        self._persist_chat()
+
+    def _delete_chat(self):
+        if not self.chat_history:
+            return
+        conversations.delete(self.chat_current["id"])
+        self.chat_current = conversations.new_conversation()
+        self.chat_history = []
+        self._render_chat()
+        self._refresh_chat_list(False)
 
     def _chat_append(self, who: str, text: str, tag: str = "assistant"):
         self.chat_view.config(state="normal")
@@ -924,15 +1035,7 @@ class App:
         self.chat_view.config(state="disabled")
 
     def _clear_chat(self):
-        self._chat_generation += 1
-        self.chat_sending = False
-        self.chat_send.config(state="normal")
-        self.chat_entry.config(state="normal")
-        self.chat_history.clear()
-        self.chat_view.config(state="normal")
-        self.chat_view.delete("1.0", "end")
-        self.chat_view.config(state="disabled")
-        self.chat_status.config(text=T(self.lang, "chat_intro"), foreground=MUT)
+        self._new_chat()
 
     def _send_chat(self):
         if self.chat_sending:
@@ -952,14 +1055,18 @@ class App:
         if self.attach_var.get():
             user_lbl += " 📸"
         self._chat_append(user_lbl, text, "user")
-        self.chat_history.append(("user", text))
+        self.chat_history.append(("user", text, ""))
+        if len(self.chat_history) == 1:
+            self.chat_current["title"] = conversations.title_from(text)
+        self._persist_chat()
 
         with_shot = self.attach_var.get()
         self.chat_send.config(state="disabled")
         self.chat_entry.config(state="disabled")
         self.chat_status.config(text=T(self.lang, "chat_wait"), foreground=ACC)
 
-        recent = self.chat_history[-10:]
+        keep = cfg.get("chat_context_messages", 6) if cfg.get("chat_eco", True) else 10
+        recent = self.chat_history[-(keep + 1):]
         generation = self._chat_generation
 
         def worker():
@@ -977,7 +1084,7 @@ class App:
                     prompt = text
                 else:
                     history_lines = []
-                    for role, msg in recent[:-1]:
+                    for role, msg, _provider in recent[:-1]:
                         speaker = "Utilisateur" if role == "user" else "Assistant"
                         history_lines.append(f"{speaker}: {msg}")
                     prompt = (
@@ -992,6 +1099,7 @@ class App:
                     system=T(cfg.get("language", "fr"), "chat_sys"),
                     b64_png=b64,
                     mime=mime,
+                    max_tokens=cfg.get("chat_response_tokens", 700) if cfg.get("chat_eco", True) else 2048,
                 )
                 self.q.put({"event": "chat_reply", "text": reply, "error": False,
                             "provider": eff_prov, "generation": generation})
@@ -1220,6 +1328,20 @@ class App:
         shots_var = tk.BooleanVar(value=bool(cfg.get("screenshot_each_action")))
         ttk.Checkbutton(sec2, text=T(lang, "shots_each"), variable=shots_var).grid(
             row=sr, column=0, columnspan=2, sticky="w", pady=2)
+        sr += 1
+        chat_eco_var = tk.BooleanVar(value=bool(cfg.get("chat_eco", True)))
+        ttk.Checkbutton(sec2, text="Mode éco du Chat (contexte et réponses plus courts)",
+                        variable=chat_eco_var).grid(row=sr, column=0, columnspan=2, sticky="w", pady=2)
+        sr += 1
+        ttk.Label(sec2, text="Messages précédents envoyés").grid(row=sr, column=0, sticky="w", pady=3)
+        chat_context_spin = ttk.Spinbox(sec2, from_=0, to=20, width=8)
+        chat_context_spin.set(cfg.get("chat_context_messages", 6))
+        chat_context_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+        ttk.Label(sec2, text="Longueur max de réponse (tokens)").grid(row=sr, column=0, sticky="w", pady=3)
+        chat_tokens_spin = ttk.Spinbox(sec2, from_=128, to=4096, increment=128, width=8)
+        chat_tokens_spin.set(cfg.get("chat_response_tokens", 700))
+        chat_tokens_spin.grid(row=sr, column=1, sticky="w", pady=3)
         r += 1
 
         # Section 3: Mode Jeu & Fenêtre
@@ -1282,6 +1404,9 @@ class App:
                 "step_delay": delay,
                 "screenshot_each_action": bool(shots_var.get()),
                 "free_mouse": bool(free_var.get()),
+                "chat_eco": bool(chat_eco_var.get()),
+                "chat_context_messages": chat_context_spin.get(),
+                "chat_response_tokens": chat_tokens_spin.get(),
                 "language": new_lang,
             })
 
@@ -1376,6 +1501,7 @@ class App:
         )
 
     def _on_close(self):
+        self._persist_chat()
         owned = agent.active_run() or self.run
         if owned:
             if not owned.stopped and not messagebox.askyesno(T(self.lang, "app"), T(self.lang, "still_running")):

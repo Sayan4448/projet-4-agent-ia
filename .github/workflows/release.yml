@@ -16,7 +16,7 @@ jobs:
       - run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-      - run: .\.venv\Scripts\python.exe -m unittest scripts.test_desktop scripts.test_modes -v
+      - run: .\.venv\Scripts\python.exe -m unittest scripts.test_desktop scripts.test_modes scripts.test_conversations -v
       - name: Ensure WiX 3 tools
         shell: pwsh
         run: |

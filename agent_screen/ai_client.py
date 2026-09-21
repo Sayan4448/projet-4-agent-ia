@@ -244,16 +244,17 @@ _failed_keys: dict = {}
 
 
 def _call_provider_single(provider: str, key: str, model: str, system: str,
-                          prompt: str, b64_png, is_json: bool, mime: str = "image/png") -> str:
+                          prompt: str, b64_png, is_json: bool, mime: str = "image/png",
+                          max_tokens: int = 2048) -> str:
     if provider in LOCAL_PROVIDERS:
-        return _call_local(provider, key, model, system, prompt, b64_png, is_json, mime)
+        return _call_local(provider, key, model, system, prompt, b64_png, is_json, mime, max_tokens)
     if provider == "gemini":
-        return _call_gemini(key, model, system, prompt, b64_png, is_json, mime=mime)
+        return _call_gemini(key, model, system, prompt, b64_png, is_json, max_tokens=max_tokens, mime=mime)
     if provider == "anthropic":
-        return _call_anthropic(key, model, system, prompt, b64_png, is_json, mime=mime)
+        return _call_anthropic(key, model, system, prompt, b64_png, is_json, max_tokens=max_tokens, mime=mime)
     if provider in ("openai", "groq", "deepseek", "openrouter"):
         return _call_openai_style(provider, key, model, system, prompt, b64_png,
-                                  is_json, mime=mime)
+                                   is_json, max_tokens=max_tokens, mime=mime)
     raise AIError(f"Fournisseur inconnu : {provider}")
 
 
@@ -265,7 +266,7 @@ def _local_base(provider):
     return base if base.endswith("/v1") else base + "/v1"
 
 
-def _call_local(provider, key, model, system, prompt, image, is_json, mime):
+def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_tokens):
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -277,14 +278,14 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime):
             user["images"] = [image]
         if is_json:
             body["format"] = "json"
-        body["options"] = {"temperature": 0.2, "num_predict": 2048}
+        body["options"] = {"temperature": 0.2, "num_predict": max_tokens}
         url = _local_base(provider) + "/api/chat"
     else:
         if image:
             user["content"] = _content_with_image(prompt, image, mime)
         if is_json:
             body["response_format"] = {"type": "json_object"}
-        body.update(temperature=0.2, max_tokens=2048)
+        body.update(temperature=0.2, max_tokens=max_tokens)
         url = _local_base(provider) + "/chat/completions"
     try:
         r = _post(url, headers, body)
@@ -325,7 +326,8 @@ def _call_cancellable(cancel_event, *args, **kwargs):
 
 def chat_with_fallback(provider: str, prompt: str, system: str = "You are a helpful assistant.",
                        b64_png=None, is_json: bool = False, mime: str = "image/png",
-                       on_fallback=None, cancel_event=None, allow_fallback=True) -> tuple:
+                       on_fallback=None, cancel_event=None, allow_fallback=True,
+                       max_tokens: int = 2048) -> tuple:
     """Execute chat with automatic fallback across multiple keys and/or providers.
     Returns: (reply_text, effective_provider_used)
     """
@@ -382,7 +384,8 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
             continue
         try:
             res = _call_cancellable(cancel_event, cand_provider, cand_key, cand_model,
-                                        system, prompt, b64_png, is_json, mime=mime)
+                                    system, prompt, b64_png, is_json, mime=mime,
+                                    max_tokens=max(128, min(4096, int(max_tokens))))
             if not isinstance(res, str) or not res.strip():
                 raise AIError("Le modèle a renvoyé une réponse vide. Essaie un autre modèle.")
             _failed_keys.pop(cand_key, None)

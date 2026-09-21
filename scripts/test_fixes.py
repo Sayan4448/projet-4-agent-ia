@@ -63,7 +63,8 @@ class TestAgentScreen(unittest.TestCase):
         from unittest.mock import patch
         fallback_calls = []
 
-        def fake_call(provider, key, model, system, prompt, b64_png, is_json, mime="image/png"):
+        def fake_call(provider, key, model, system, prompt, b64_png, is_json,
+                      mime="image/png", max_tokens=2048):
             if key == "bad_key":
                 raise ai_client.AIError("429 Quota exceeded")
             return f"Success from {provider} with {key}"

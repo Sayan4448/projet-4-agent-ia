@@ -43,12 +43,15 @@ DEFAULTS = {
     "limit_actions_per_capture": True,
     "actions_per_capture": 3,
     "local_urls": {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234/v1"},
+    "chat_eco": True,
+    "chat_context_messages": 6,
+    "chat_response_tokens": 700,
 }
 
 
 def _merge_modes(cfg, source):
     """Shared validation for persisted run options and local server addresses."""
-    for key in ("eco_mode", "virtual_cursor", "limit_actions_per_capture"):
+    for key in ("eco_mode", "virtual_cursor", "limit_actions_per_capture", "chat_eco"):
         if key in source:
             cfg[key] = bool(source[key])
     if source.get("execution_mode") in ("desktop", "browser"):
@@ -58,6 +61,13 @@ def _merge_modes(cfg, source):
             cfg["actions_per_capture"] = max(1, min(12, int(source["actions_per_capture"])))
         except (ValueError, TypeError, OverflowError):
             pass
+    for key, default, low, high in (("chat_context_messages", 6, 0, 20),
+                                    ("chat_response_tokens", 700, 128, 4096)):
+        if key in source:
+            try:
+                cfg[key] = max(low, min(high, int(source[key])))
+            except (ValueError, TypeError, OverflowError):
+                cfg[key] = default
     urls = source.get("local_urls")
     if isinstance(urls, dict):
         from urllib.parse import urlsplit
