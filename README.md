@@ -100,4 +100,4 @@ les tests, la compilation, l’ajout d’actions et la publication des versions.
 - Une seule tâche par processus ; ne lancez pas deux instances pour piloter le même bureau.
 - Le binaire n’est pas signé : Windows peut afficher une demande de confirmation.
 
-[Historique des versions](CHANGELOG.md) · [Contribuer](CONTRIBUTING.md)
+[Historique des versions](CHANGELOG.md) · [Vérifications réalisées](docs/VALIDATION.md) · [Contribuer](CONTRIBUTING.md)

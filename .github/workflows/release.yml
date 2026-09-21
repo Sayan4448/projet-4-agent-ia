@@ -9,15 +9,20 @@ jobs:
   package:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
       - run: .\.venv\Scripts\python.exe -m unittest scripts.test_desktop scripts.test_modes -v
-      - run: choco install wixtoolset --version=3.14.1 -y --no-progress
+      - name: Ensure WiX 3 tools
+        shell: pwsh
+        run: |
+          if (!(Test-Path "${env:ProgramFiles(x86)}\WiX Toolset v3.14\bin\candle.exe")) {
+            choco install wixtoolset --version=3.14.1.20250415 -y --no-progress
+          }
       - shell: powershell
         run: ./scripts/build_windows.ps1
       - uses: actions/upload-artifact@v4
