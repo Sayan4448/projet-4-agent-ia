@@ -102,6 +102,21 @@ def _content_with_image(prompt: str, b64_png: str, mime: str = "image/png"):
     ]
 
 
+def _normalize_media(media, fallback_mime="image/png"):
+    """One or a few media blocks, capped to prevent accidental credit explosions."""
+    if not media:
+        return []
+    if isinstance(media, str):
+        return [(media, fallback_mime)]
+    out = []
+    for item in list(media)[:4]:
+        if isinstance(item, str):
+            out.append((item, fallback_mime))
+        elif isinstance(item, (tuple, list)) and item:
+            out.append((str(item[0]), str(item[1] if len(item) > 1 else fallback_mime)))
+    return out
+
+
 def _heal_deprecated_model(api_key: str, failed_model: str, error_text: str):
     """Google retires models over time; the 404 names a replacement
     ('models/gemini-3.5-flash-lite'). If that replacement exists for this
@@ -144,9 +159,12 @@ def _call_openai_style(provider: str, api_key: str, model: str, system: str,
                        prompt: str, b64_png, is_json: bool, max_tokens: int = 2048,
                        mime: str = "image/png") -> str:
     messages = [{"role": "system", "content": system}]
-    if b64_png:
-        messages.append({"role": "user",
-                         "content": _content_with_image(prompt, b64_png, mime)})
+    media = _normalize_media(b64_png, mime)
+    if media:
+        content = [{"type": "text", "text": prompt}]
+        content += [{"type": "image_url", "image_url": {"url": f"data:{m};base64,{data}"}}
+                    for data, m in media]
+        messages.append({"role": "user", "content": content})
     else:
         messages.append({"role": "user", "content": prompt})
     body = {"model": model, "messages": messages, "temperature": 0.2,
@@ -188,9 +206,9 @@ def _call_anthropic(api_key: str, model: str, system: str,
                     prompt: str, b64_png, is_json: bool, max_tokens: int = 2048,
                     mime: str = "image/png") -> str:
     content = []
-    if b64_png:
+    for data, media_type in _normalize_media(b64_png, mime):
         content.append({"type": "image",
-                        "source": {"type": "base64", "media_type": mime, "data": b64_png}})
+                        "source": {"type": "base64", "media_type": media_type, "data": data}})
     content.append({"type": "text", "text": prompt})
     body = {"model": model, "max_tokens": max_tokens, "system": system,
             "messages": [{"role": "user", "content": content}]}
@@ -210,8 +228,8 @@ def _call_gemini(api_key: str, model: str, system: str,
                  prompt: str, b64_png, is_json: bool, max_tokens: int = 2048,
                  mime: str = "image/png") -> str:
     parts = []
-    if b64_png:
-        parts.append({"inline_data": {"mime_type": mime, "data": b64_png}})
+    for data, media_type in _normalize_media(b64_png, mime):
+        parts.append({"inline_data": {"mime_type": media_type, "data": data}})
     parts.append({"text": prompt})
     body = {
         "system_instruction": {"parts": [{"text": system}]},
@@ -270,19 +288,22 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
+    media = _normalize_media(image, mime)
     user = {"role": "user", "content": prompt}
     body = {"model": model, "stream": False,
             "messages": [{"role": "system", "content": system}, user]}
     if provider == "ollama":
-        if image:
-            user["images"] = [image]
+        if media:
+            user["images"] = [data for data, _mime in media]
         if is_json:
             body["format"] = "json"
         body["options"] = {"temperature": 0.2, "num_predict": max_tokens}
         url = _local_base(provider) + "/api/chat"
     else:
-        if image:
-            user["content"] = _content_with_image(prompt, image, mime)
+        if media:
+            user["content"] = [{"type": "text", "text": prompt}] + [
+                {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{data}"}}
+                for data, media_type in media]
         if is_json:
             body["response_format"] = {"type": "json_object"}
         body.update(temperature=0.2, max_tokens=max_tokens)

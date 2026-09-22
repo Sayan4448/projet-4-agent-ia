@@ -8,7 +8,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows_10%2F11-x64-8b5cf6)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
-![Version](https://img.shields.io/badge/version-1.8.0-a78bfa)
+![Version](https://img.shields.io/badge/version-1.9.0-a78bfa)
 
 [Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md)
 
@@ -31,16 +31,19 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 | **Bureau Windows** | Ouvrir des applications, cliquer, écrire, utiliser le clavier et PowerShell. |
 | **Navigateur uniquement** | Piloter une session Edge/Chrome dédiée, sans injection de souris/clavier sur le bureau. |
 | **Curseur virtuel** | Flèche violette, halo animé, aperçu avant clic, indicateur d’activité flottant. |
-| **Actions par capture** | Limite activable de **1 à 12** actions avant la prochaine observation ; automatique = 6 maximum. |
+| **Actions par capture** | Limite de **1 à 12** actions (défaut : 3) ; limite désactivée = 6 maximum. |
 | **Mode éco** | Images limitées à 960 px, JPEG 60, historique réduit, captures intermédiaires désactivées. |
-| **IA cloud** | Gemini, OpenAI, Anthropic, Groq, DeepSeek et OpenRouter ; rotation des clés en cas d’échec. |
+| **IA cloud** | Six fournisseurs ; rotation des clés et bascule vers un autre fournisseur cloud configuré en cas d’échec. |
 | **IA locale** | Ollama et LM Studio, adresse configurable, liste des modèles et test de connexion. |
 | **Chat** | Conversation et analyse de captures jointes. |
 | **Discussions** | Historique local, favoris, création, réouverture et suppression. |
+| **Montage vidéo** | Profil pour Premiere Pro, CapCut et DaVinci Resolve, avec raccourcis et vérification visuelle. |
+| **Mouvement & audio** | Séquence de 1–6 s (4 images max), enregistrement vidéo MP4 (1–30 s) et analyse d’un fichier audio explicitement indiqué. |
+| **Agent autonome** | Bandeau interactif, messages en direct, veille locale et budget IA strict. |
 
 ## Installation rapide
 
-1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.8.0.msi`.
+1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.0.msi`.
 2. Lancer le MSI puis ouvrir **Projet 4, agent IA** depuis le Bureau ou le menu Démarrer.
 3. Dans **Paramètres**, choisir un fournisseur, charger les modèles, sélectionner un
    modèle puis **Tester la connexion**. Pour les captures, il faut un modèle avec vision.
@@ -62,7 +65,8 @@ est conservé pour les mises à jour ; l’application porte bien le nom **Proje
 
 Les discussions du Chat sont conservées localement. Le titre est créé sans IA et les
 favoris restent en haut. Le mode éco Chat envoie par défaut seulement les 6 messages
-précédents et limite la réponse à 700 tokens ; ces valeurs sont réglables.
+précédents et limite la réponse à 700 tokens ; ces valeurs sont réglables et s’appliquent
+quand le mode éco Chat est actif. Sinon, l’app utilise 10 messages et 2 048 tokens.
 
 Le mode navigateur utilise son propre profil, distinct de vos profils personnels.
 Il ouvre une fenêtre dédiée et la ferme à la fin de la tâche. Les connexions conservées
@@ -93,7 +97,10 @@ les tests, la compilation, l’ajout d’actions et la publication des versions.
 ## Données et limites
 
 - Les clés et captures restent dans le dossier de données local, jamais dans le dépôt.
-  Avec une IA cloud, le prompt et les captures jointes sont envoyés à ce fournisseur.
+  Avec une IA cloud, le prompt et les captures jointes vont au fournisseur sélectionné,
+  ou à un autre fournisseur cloud configuré si le premier échoue.
+- Le mode Bureau peut exécuter PowerShell avec les droits de votre session. Utilisez-le
+  seulement pour des tâches et contenus auxquels vous faites confiance.
 - Une session **Ollama/LM Studio ne bascule jamais vers une IA cloud**. L’adresse du
   serveur peut toutefois être distante si vous la changez.
 - Le mode navigateur restreint les **outils de l’agent** à la page. Ce n’est pas un

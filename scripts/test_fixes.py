@@ -269,6 +269,16 @@ class TestReliabilityFixes(unittest.TestCase):
             self.assertEqual(apps.find_running_window(("discord",), ("discord.exe",)),
                              "Discord")
 
+    def test_running_app_is_not_success_when_focus_fails(self):
+        with patch.object(apps, "resolve_app", return_value={"kind": "exe", "target": "x",
+                          "name": "editor", "titles": ("editor",), "exes": ("editor.exe",),
+                          "method": "test"}), \
+             patch.object(apps, "find_running_window", return_value="Editor"), \
+             patch.object(apps.display, "activate_window", return_value={"ok": False, "error": "denied"}):
+            result = apps.launch_app("editor")
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["verified"])
+
     def test_launch_verification_never_claims_false_success(self):
         with patch("agent_screen.display.list_windows", return_value=[]):
             ok, title, verified = apps._wait_for_window(set(), ("brave",),
@@ -524,7 +534,7 @@ class TestReliabilityFixes(unittest.TestCase):
             with patch("agent_screen.display.take_screenshot", return_value="x"):
                 app = gui.App(root)
             root.destroy()
-        self.assertEqual((cfg["provider"], cfg["max_steps"]), ("gemini", 12))
+        self.assertEqual((cfg["provider"], cfg["max_steps"]), ("gemini", 20))
         self.assertFalse(migrated)
         self.assertEqual(hashlib.sha256(corrupt.read_bytes()).hexdigest(), before)
         self.assertIsNotNone(app)                     # the window still came up

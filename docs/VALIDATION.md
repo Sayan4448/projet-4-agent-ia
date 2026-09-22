@@ -1,10 +1,10 @@
-# Validation de la version 1.7.0
+# Validation de la version 1.9.0
 
 Vérifications réalisées sur Windows le 21 septembre 2026.
 
 | Vérification | Résultat |
 |---|---|
-| Tests `test_fixes`, `test_desktop`, `test_modes` | 71 réussis |
+| Tous les fichiers `scripts/test_*.py` | 81 réussis |
 | Dépendances Python (`pip check`) | Aucun conflit détecté |
 | Interface native | Fenêtre principale, Chat et paramètres ouverts |
 | Saisie bureau | Texte accentué de plus de 200 caractères saisi dans la fenêtre de test |
@@ -36,5 +36,5 @@ un rapport JSON. Il n’appelle aucune IA et ne navigue pas sur un site externe.
   L’extraction MSI et son exécutable ont été vérifiés ; pas une matrice de PC vierges.
 - Les sites avec CAPTCHA, authentification spéciale ou protocoles externes.
 
-Les workflows GitHub exécutent les régressions desktop/modes et reconstruisent la
+Les workflows GitHub exécutent toute la suite `test_*.py` et reconstruisent la
 distribution Windows ; leur résultat est visible dans l’onglet **Actions** du dépôt.

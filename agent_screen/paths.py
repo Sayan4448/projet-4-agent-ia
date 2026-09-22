@@ -46,6 +46,13 @@ def conversations_file() -> Path:
     return data_dir() / "conversations.json"
 
 
+def recordings_dir() -> Path:
+    """Where the agent saves the short MP4 clips it records for editing."""
+    d = data_dir() / "recordings"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def legacy_config_candidates():
     """Configs written by earlier versions (v1.0-1.2) that may hold keys.
 

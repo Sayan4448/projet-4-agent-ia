@@ -41,6 +41,11 @@ class ConversationTests(unittest.TestCase):
         conversations.delete(second["id"])
         self.assertEqual([x["title"] for x in conversations.load_all()], ["Normal"])
 
+    def test_malformed_messages_do_not_break_startup(self):
+        conversations.conversations_file().write_text(
+            '[{"id":"bad","title":"Importé","messages":null}]', encoding="utf-8")
+        self.assertEqual(conversations.load_all()[0]["messages"], [])
+
     def test_chat_persists_and_reopens_a_favorite(self):
         app = self.make_app()
         app.chat_history = [("user", "Mon sujet", ""), ("assistant", "Ma réponse", "gemini")]

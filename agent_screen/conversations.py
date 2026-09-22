@@ -25,7 +25,10 @@ def _clean_message(message):
 def _clean_conversation(item):
     if not isinstance(item, dict):
         return None
-    messages = [_clean_message(m) for m in item.get("messages", [])[:MAX_MESSAGES]]
+    raw_messages = item.get("messages", [])
+    if not isinstance(raw_messages, list):
+        raw_messages = []
+    messages = [_clean_message(m) for m in raw_messages[:MAX_MESSAGES]]
     messages = [m for m in messages if m]
     try:
         updated = float(item.get("updated", 0))

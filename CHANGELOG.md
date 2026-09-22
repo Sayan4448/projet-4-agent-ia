@@ -1,5 +1,17 @@
 # Historique
 
+## 1.9.0
+
+- Profil Montage vidéo pour Premiere Pro, CapCut et DaVinci Resolve.
+- Reconnaissance et lancement déterministe des trois logiciels de montage.
+- Observation de mouvement bornée à 6 secondes et 4 images au maximum.
+- Enregistrement vidéo réel (record_video) : clip MP4 H.264 de 1 à 30 s, enregistré dans data/recordings.
+- Analyse d’un fichier audio explicite avec Gemini, sans écoute permanente du micro.
+- Champ de discussion dans le bandeau flottant de l’agent.
+- Mode autonome borné en durée et en appels IA, avec veille et comparaison d’écran locales.
+- Budget par défaut : 60 minutes, 20 appels IA, intervalle minimal de 30 secondes.
+- Réponses de décision limitées à 900 tokens en mode éco et 1 600 sinon.
+
 ## 1.8.0
 
 - Discussions du Chat enregistrées localement et restaurées après redémarrage.

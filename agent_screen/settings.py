@@ -25,7 +25,7 @@ DEFAULTS = {
     "provider": "gemini",
     "api_keys": {p: "" for p in PROVIDERS},
     "models": _default_models(),
-    "max_steps": 12,
+    "max_steps": 20,
     "grid": True,               # coordinate grid overlay on screenshots
     "image_width": 1280,        # downscaled image width for the model (0 = full)
     "game_mode": False,         # raw scan-code keys + relative mouse (games)
@@ -46,23 +46,34 @@ DEFAULTS = {
     "chat_eco": True,
     "chat_context_messages": 6,
     "chat_response_tokens": 700,
+    "agent_profile": "general",
+    "autonomous_mode": False,
+    "autonomous_minutes": 60,
+    "autonomous_max_calls": 20,
+    "autonomous_min_interval": 30,
 }
 
 
 def _merge_modes(cfg, source):
     """Shared validation for persisted run options and local server addresses."""
-    for key in ("eco_mode", "virtual_cursor", "limit_actions_per_capture", "chat_eco"):
+    for key in ("eco_mode", "virtual_cursor", "limit_actions_per_capture", "chat_eco",
+                "autonomous_mode"):
         if key in source:
             cfg[key] = bool(source[key])
     if source.get("execution_mode") in ("desktop", "browser"):
         cfg["execution_mode"] = source["execution_mode"]
+    if source.get("agent_profile") in ("general", "video_editing"):
+        cfg["agent_profile"] = source["agent_profile"]
     if "actions_per_capture" in source:
         try:
             cfg["actions_per_capture"] = max(1, min(12, int(source["actions_per_capture"])))
         except (ValueError, TypeError, OverflowError):
             pass
     for key, default, low, high in (("chat_context_messages", 6, 0, 20),
-                                    ("chat_response_tokens", 700, 128, 4096)):
+                                    ("chat_response_tokens", 700, 128, 4096),
+                                    ("autonomous_minutes", 60, 5, 240),
+                                    ("autonomous_max_calls", 20, 2, 80),
+                                    ("autonomous_min_interval", 30, 15, 300)):
         if key in source:
             try:
                 cfg[key] = max(low, min(high, int(source[key])))
@@ -242,7 +253,7 @@ def save(partial: dict) -> dict:
                 if p in keys:
                     # strip copy/paste artifacts (spaces, quotes, prefix labels)
                     raw = str(keys.get(p, "") or "").strip().strip('"').strip("'")
-                    raw = raw.split(":")[-1].strip() if raw.lower().startswith(("gemini:", "openai:")) else raw
+                    raw = raw.split(":", 1)[1].strip() if raw.lower().startswith(("gemini:", "openai:")) else raw
                     cfg["api_keys"][p] = ", ".join(split_keys(raw))
         models = partial.get("models")
         if isinstance(models, dict):

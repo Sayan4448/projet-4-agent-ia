@@ -13,7 +13,8 @@ from .paths import data_dir
 from .display import _draw_grid
 
 ALLOWED = {"open_url", "search_web", "mouse_move", "mouse_click", "mouse_double_click",
-           "mouse_scroll", "mouse_hscroll", "type_text", "press_key", "hotkey", "wait"}
+           "mouse_scroll", "mouse_hscroll", "type_text", "press_key", "hotkey", "wait",
+           "observe_motion"}
 KEYS = {"enter": "Enter", "return": "Enter", "tab": "Tab", "esc": "Escape", "escape": "Escape",
         "backspace": "Backspace", "delete": "Delete", "space": "Space", "up": "ArrowUp",
         "down": "ArrowDown", "left": "ArrowLeft", "right": "ArrowRight", "home": "Home",
@@ -97,6 +98,8 @@ class BrowserSession:
         if name not in ALLOWED:
             raise ValueError(f"Action interdite en mode navigateur : {name}")
         page = self._active_page()
+        if name == "observe_motion":
+            raise RuntimeError("observe_motion is handled by the active agent session")
         if name in ("open_url", "search_web"):
             url = str(args.get("url", "")).strip() if name == "open_url" else "https://www.google.com/search?q=" + quote(str(args.get("query", "")))
             if "://" not in url:

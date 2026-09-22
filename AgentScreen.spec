@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Build: .venv/Scripts/python -m PyInstaller AgentScreen.spec --noconfirm
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 hidden = collect_submodules("agent_screen")
 
@@ -8,7 +8,7 @@ a = Analysis(
     ["run_app.py"],
     pathex=["."],
     binaries=[],
-    datas=[("assets/app.ico", ".")],
+    datas=[("assets/app.ico", ".")] + collect_data_files("imageio_ffmpeg"),
     hiddenimports=hidden + ["tkinter", "pyautogui", "PIL.ImageGrab", "PIL.ImageTk", "pygetwindow", "pymsgbox", "pytweening", "pyscreeze", "pyperclip", "mouseinfo"],
     excludes=["matplotlib", "numpy", "pandas", "scipy", "pytest", "setuptools", "pyinstaller"],
     noarchive=False,

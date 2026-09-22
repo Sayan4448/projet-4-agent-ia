@@ -14,7 +14,7 @@ from . import __version__, display
 from .agent import RunBusy, run_goal
 from .ai_client import AIError, chat
 from .paths import load_dotenv_if_present
-from .settings import PROVIDERS, load, migrate_legacy_keys, save
+from .settings import PROVIDERS, get_provider_keys, load, migrate_legacy_keys, save
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -305,7 +305,9 @@ class Handler(BaseHTTPRequestHandler):
                     if os.environ.get(env_name):
                         env_found[p] = env_name
                         break
-            self._json({**cfg, "env_keys": env_found})
+            safe = dict(cfg)
+            safe["api_keys"] = {p: bool(get_provider_keys(p)) for p in PROVIDERS}
+            self._json({**safe, "env_keys": env_found})
         elif path == "/api/screen":
             self._json(display.screen_info())
         elif path == "/api/screenshot":
@@ -332,7 +334,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(run_goal(goal, cfg["provider"], max_steps=cfg["max_steps"],
                                     execution_mode=cfg["execution_mode"], eco_mode=cfg["eco_mode"],
                                     limit_actions_per_capture=cfg["limit_actions_per_capture"],
-                                    actions_per_capture=cfg["actions_per_capture"]))
+                                    actions_per_capture=cfg["actions_per_capture"],
+                                    grid=cfg["grid"], image_width=cfg["image_width"],
+                                    jpeg_quality=cfg["jpeg_quality"], game_mode=cfg["game_mode"],
+                                    window_mode=cfg["window_mode"], window_title=cfg["window_title"],
+                                    free_mouse=cfg["free_mouse"], virtual_cursor=cfg["virtual_cursor"],
+                                    agent_profile=cfg["agent_profile"], autonomous_mode=cfg["autonomous_mode"],
+                                    autonomous_minutes=cfg["autonomous_minutes"],
+                                    autonomous_max_calls=cfg["autonomous_max_calls"],
+                                    autonomous_min_interval=cfg["autonomous_min_interval"]))
             except RunBusy:
                 # a run is already in flight, here or in the desktop window: one
                 # owner (agent) decides, so a second tab cannot share the mouse

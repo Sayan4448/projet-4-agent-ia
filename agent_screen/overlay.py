@@ -31,8 +31,9 @@ def _native(window, click_through=False):
 
 
 class AgentOverlay:
-    def __init__(self, root, stop):
+    def __init__(self, root, stop, send_message=None):
         self.root = root
+        self.send_message = send_message
         self.timer = None
         self.cursor = tk.Toplevel(root)
         self.cursor.withdraw()
@@ -51,17 +52,42 @@ class AgentOverlay:
         self.hud.overrideredirect(True)
         self.hud.attributes("-topmost", True)
         self.hud.configure(bg="#211a36", highlightbackground=PURPLE, highlightthickness=1)
-        self.label = tk.Label(self.hud, bg="#211a36", fg="#ede9fe", font=("Segoe UI", 10, "bold"),
-                              text="●  AGENT ACTIF", padx=16, pady=12)
+        top = tk.Frame(self.hud, bg="#211a36")
+        top.pack(fill="x")
+        self.label = tk.Label(top, bg="#211a36", fg="#ede9fe", font=("Segoe UI", 10, "bold"),
+                              text="●  AGENT ACTIF", padx=16, pady=10)
         self.label.pack(side="left")
-        tk.Button(self.hud, text="■ Stop", command=stop, bg="#4c2549", fg="white",
-                  relief="flat", padx=12, pady=7).pack(side="right", padx=8)
+        tk.Button(top, text="■ Stop", command=stop, bg="#4c2549", fg="white",
+                  relief="flat", padx=12, pady=7).pack(side="right", padx=8, pady=5)
+        self.reply = tk.Label(self.hud, bg="#211a36", fg="#b8aaca", text="",
+                              wraplength=420, justify="left", anchor="w", padx=12)
+        self.reply.pack(fill="x")
+        compose = tk.Frame(self.hud, bg="#211a36")
+        compose.pack(fill="x", padx=10, pady=(4, 10))
+        self.entry = tk.Entry(compose, bg="#11101a", fg="white", insertbackground="white",
+                              relief="flat", width=44)
+        self.entry.pack(side="left", fill="x", expand=True, ipady=5)
+        self.entry.bind("<Return>", lambda _e: self.submit())
+        tk.Button(compose, text="Envoyer", command=self.submit, bg="#6d40ce", fg="white",
+                  relief="flat", padx=10, pady=4).pack(side="left", padx=(6, 0))
         _native(self.hud)
 
     def start(self, mode):
         self.label.configure(text=f"●  AGENT ACTIF  ·  {mode}")
-        self.hud.geometry(f"+{max(10, self.root.winfo_screenwidth() // 2 - 200)}+16")
+        self.reply.configure(text="Dis-moi quoi faire pendant que je travaille.")
+        self.hud.geometry(f"470x116+{max(10, self.root.winfo_screenwidth() // 2 - 235)}+16")
         self.hud.deiconify()
+
+    def submit(self):
+        text = self.entry.get().strip()
+        if not text or not self.send_message:
+            return
+        self.entry.delete(0, "end")
+        self.reply.configure(text="Vous : " + text[:180])
+        self.send_message(text)
+
+    def message(self, text):
+        self.reply.configure(text=str(text)[:240])
 
     def status(self, text):
         self.label.configure(text="●  " + text[:55])

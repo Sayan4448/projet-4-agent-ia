@@ -438,8 +438,19 @@ class App:
         self.eco_var = tk.BooleanVar(value=self.cfg.get("eco_mode", False))
         ttk.Checkbutton(game_row, text="Éco", variable=self.eco_var,
                         command=self._save_run_options).pack(side="right")
+        self.profile_var = tk.StringVar(value=self.cfg.get("agent_profile", "general"))
+        profile_row = ttk.Frame(game_box)
+        profile_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(profile_row, text="Profil :", foreground=MUT).pack(side="left")
+        ttk.Radiobutton(profile_row, text="Général", value="general", variable=self.profile_var,
+                        command=self._save_run_options).pack(side="left", padx=5)
+        ttk.Radiobutton(profile_row, text="Montage vidéo", value="video_editing", variable=self.profile_var,
+                        command=self._save_run_options).pack(side="left", padx=5)
+        self.autonomous_var = tk.BooleanVar(value=self.cfg.get("autonomous_mode", False))
+        ttk.Checkbutton(profile_row, text="Autonome", variable=self.autonomous_var,
+                        command=self._save_run_options).pack(side="right")
         options = ttk.Frame(game_box)
-        options.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        options.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         self.cursor_var = tk.BooleanVar(value=self.cfg.get("virtual_cursor", True))
         ttk.Checkbutton(options, text="Curseur IA visible", variable=self.cursor_var,
                         command=self._save_run_options).pack(side="left")
@@ -447,7 +458,7 @@ class App:
         ttk.Checkbutton(options, text="Touches jeu (bureau)", variable=self.game_var,
                         command=self._toggle_game).pack(side="left")
         limits = ttk.Frame(game_box)
-        limits.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        limits.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.limit_var = tk.BooleanVar(value=self.cfg.get("limit_actions_per_capture", True))
         ttk.Checkbutton(limits, text="Limiter les actions par capture", variable=self.limit_var,
                         command=self._save_run_options).pack(side="left")
@@ -456,7 +467,9 @@ class App:
         self.action_count.pack(side="left", padx=8)
         self.action_count.bind("<FocusOut>", lambda e: self._save_run_options())
         ttk.Label(game_box, text="Éco : captures 960 px / JPEG 60, contexte court, sans captures intermédiaires.",
-                  foreground=MUT, wraplength=490).grid(row=3, column=0, sticky="w", pady=(6, 0))
+                  foreground=MUT, wraplength=490).grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(game_box, text="Autonome : veille locale gratuite, réveil sur message/changement, budget borné.",
+                  foreground=MUT, wraplength=490).grid(row=5, column=0, sticky="w", pady=(2, 0))
 
         # -- Window Capture
         win_box = ttk.LabelFrame(left, text=self._("window_box"), padding=10)
@@ -524,8 +537,10 @@ class App:
         try:
             count = int(self.action_count.get()) if hasattr(self, "action_count") else 3
             save({"execution_mode": self.mode_var.get(), "eco_mode": self.eco_var.get(),
+                  "agent_profile": self.profile_var.get(), "autonomous_mode": self.autonomous_var.get(),
                   "virtual_cursor": self.cursor_var.get(), "limit_actions_per_capture": self.limit_var.get(),
                   "actions_per_capture": count})
+            self.cfg.update(load())
         except (ValueError, tk.TclError):
             if hasattr(self, "action_count"):
                 self.action_count.set(load()["actions_per_capture"])
@@ -703,14 +718,22 @@ class App:
                 execution_mode=cfg["execution_mode"], eco_mode=cfg["eco_mode"],
                 actions_per_capture=cfg["actions_per_capture"],
                 limit_actions_per_capture=cfg["limit_actions_per_capture"],
-                virtual_cursor=cfg["virtual_cursor"])
+                virtual_cursor=cfg["virtual_cursor"], agent_profile=cfg["agent_profile"],
+                autonomous_mode=cfg["autonomous_mode"],
+                autonomous_minutes=cfg["autonomous_minutes"],
+                autonomous_max_calls=cfg["autonomous_max_calls"],
+                autonomous_min_interval=cfg["autonomous_min_interval"])
             self.run = run
             # claim before starting the thread: the run owns the mouse from here, so
             # the poller can tell a live run from a dead one without a race
             agent.claim(run)
             if self.overlay is None:
-                self.overlay = AgentOverlay(self.root, self._stop_run)
-            self.overlay.start("Navigateur" if cfg["execution_mode"] == "browser" else "Bureau")
+                self.overlay = AgentOverlay(self.root, self._stop_run, self._overlay_message)
+            mode_label = "Montage" if cfg["agent_profile"] == "video_editing" else (
+                "Navigateur" if cfg["execution_mode"] == "browser" else "Bureau")
+            if cfg["autonomous_mode"]:
+                mode_label += " · Autonome"
+            self.overlay.start(mode_label)
             threading.Thread(target=run.run, daemon=True).start()
         except agent.RunBusy:      # the local page took the mouse in between
             self.run = None
@@ -741,6 +764,12 @@ class App:
         else:
             self._add_card(T(self.lang, "your_guidance"),
                            T(self.lang, "guidance_not_sent"), color=ERR, accent=ERR)
+
+    def _overlay_message(self, text):
+        if self.run and not self.run.stopped:
+            self.run.guide(text)
+            self._add_card("Message depuis le bandeau", text, color=OK, accent=OK)
+            self._log(f"Bandeau : {text}")
 
     def _emit(self, event, **kw):
         self.q.put({"event": event, **kw})
@@ -781,6 +810,8 @@ class App:
             self._add_card(f"💭 {msg['step']} · {self._('thinking')}", msg["text"],
                            color=TXT, accent=ACC)
             self._log(f"step {msg['step']}: {msg['text'][:100]}")
+            if self.overlay:
+                self.overlay.message("IA : " + msg["text"])
         elif ev == "action":
             args = ", ".join(f"{k}={v}" for k, v in msg["args"].items())
             hold = f"  [hold {msg['hold']}s]" if msg.get("hold") else ""
@@ -793,6 +824,25 @@ class App:
         elif ev == "screenshot":
             sub = f".{msg['sub']}" if msg.get("sub") else ""
             self._add_shot_card(f"📸 {msg['step']}{sub} · {self._('after_action')}", msg["image"])
+        elif ev == "motion":
+            self._add_card("Séquence observée", f"{len(msg['frames'])} images sur {msg['seconds']:.1f} secondes",
+                           color="#38bdf8", accent="#38bdf8")
+        elif ev == "video":
+            self._add_card("🎬 Clip enregistré",
+                           f"{msg['file']} · {msg['seconds']} s\n{msg['path']}",
+                           color="#38bdf8", accent="#38bdf8")
+            self._log(f"🎬 {msg['path']}")
+        elif ev == "autonomous_wait":
+            text = f"Veille locale · {msg['calls']}/{msg['budget']} appels IA"
+            self.status_lbl.config(text=text, foreground=OK)
+            if self.overlay:
+                self.overlay.status(text)
+        elif ev == "autonomous_limit":
+            self._add_card("Budget autonome terminé",
+                           f"Arrêt après {msg['calls']} appels IA. Relance si tu veux continuer.",
+                           color=WARN, accent=WARN)
+            if self.overlay:
+                self.overlay.message(f"Budget terminé : {msg['calls']} appels IA.")
         elif ev == "fallback":
             from_p = PROVIDER_LABELS.get(msg.get("from_provider"), msg.get("from_provider"))
             to_p = PROVIDER_LABELS.get(msg.get("to_provider"), msg.get("to_provider"))
@@ -821,6 +871,8 @@ class App:
                 self._finish("⏹")
             elif outcome == "max_steps":
                 self._add_card("Limite", self._("max_steps_reached"), color=WARN, accent=WARN)
+                self._finish("⚠")
+            elif outcome == "autonomous_limit":
                 self._finish("⚠")
             else:
                 self._finish("✖")
@@ -1305,7 +1357,7 @@ class App:
 
         ttk.Label(sec2, text=T(lang, "max_steps")).grid(row=sr, column=0, sticky="w", pady=3)
         steps_spin = ttk.Spinbox(sec2, from_=1, to=40, width=8)
-        steps_spin.set(cfg.get("max_steps", 12))
+        steps_spin.set(cfg.get("max_steps", 20))
         steps_spin.grid(row=sr, column=1, sticky="w", pady=3)
         sr += 1
 
@@ -1342,6 +1394,25 @@ class App:
         chat_tokens_spin = ttk.Spinbox(sec2, from_=128, to=4096, increment=128, width=8)
         chat_tokens_spin.set(cfg.get("chat_response_tokens", 700))
         chat_tokens_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+        autonomous_var = tk.BooleanVar(value=bool(cfg.get("autonomous_mode", False)))
+        ttk.Checkbutton(sec2, text="Mode autonome borné", variable=autonomous_var).grid(
+            row=sr, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        sr += 1
+        ttk.Label(sec2, text="Durée autonome maximale (minutes)").grid(row=sr, column=0, sticky="w", pady=3)
+        autonomous_minutes_spin = ttk.Spinbox(sec2, from_=5, to=240, width=8)
+        autonomous_minutes_spin.set(cfg.get("autonomous_minutes", 60))
+        autonomous_minutes_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+        ttk.Label(sec2, text="Budget maximal d’appels IA").grid(row=sr, column=0, sticky="w", pady=3)
+        autonomous_calls_spin = ttk.Spinbox(sec2, from_=2, to=80, width=8)
+        autonomous_calls_spin.set(cfg.get("autonomous_max_calls", 20))
+        autonomous_calls_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+        ttk.Label(sec2, text="Intervalle minimal entre appels (secondes)").grid(row=sr, column=0, sticky="w", pady=3)
+        autonomous_interval_spin = ttk.Spinbox(sec2, from_=15, to=300, increment=15, width=8)
+        autonomous_interval_spin.set(cfg.get("autonomous_min_interval", 30))
+        autonomous_interval_spin.grid(row=sr, column=1, sticky="w", pady=3)
         r += 1
 
         # Section 3: Mode Jeu & Fenêtre
@@ -1387,7 +1458,7 @@ class App:
             try:
                 max_steps = max(1, min(40, int(steps_spin.get())))
             except ValueError:
-                max_steps = 12
+                max_steps = 20
             new_lang = "fr" if lang_cb.current() == 0 else "en"
             return save({
                 "provider": p,
@@ -1407,6 +1478,10 @@ class App:
                 "chat_eco": bool(chat_eco_var.get()),
                 "chat_context_messages": chat_context_spin.get(),
                 "chat_response_tokens": chat_tokens_spin.get(),
+                "autonomous_mode": bool(autonomous_var.get()),
+                "autonomous_minutes": autonomous_minutes_spin.get(),
+                "autonomous_max_calls": autonomous_calls_spin.get(),
+                "autonomous_min_interval": autonomous_interval_spin.get(),
                 "language": new_lang,
             })
 

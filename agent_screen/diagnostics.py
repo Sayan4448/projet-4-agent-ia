@@ -27,5 +27,10 @@ def browser_check(report):
         result["error"] = f"{type(e).__name__}: {e}"
     finally:
         browser_mode.data_dir = original
-        Path(report).write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            output = Path(report)
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            return False
     return result["ok"]

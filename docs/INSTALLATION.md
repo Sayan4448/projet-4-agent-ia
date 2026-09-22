@@ -11,7 +11,7 @@
 ## MSI (recommandé)
 
 Dans la page **Releases** du dépôt, ouvrir la dernière version puis **Assets**.
-Télécharger `Projet4-AgentIA-1.8.0.msi`, puis l’exécuter. L’assistant installe
+Télécharger `Projet4-AgentIA-1.9.0.msi`, puis l’exécuter. L’assistant installe
 l’application dans Program Files et crée des raccourcis Bureau et menu Démarrer.
 L’installation machine peut demander l’autorisation administrateur.
 

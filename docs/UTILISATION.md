@@ -63,6 +63,40 @@ gauche déclenche aussi le failsafe PyAutoGUI. En mode navigateur, utiliser Stop
 Les attentes IA sont interrompues côté agent ; une requête HTTP déjà envoyée peut finir
 en arrière-plan, sans exécuter sa réponse. Les navigations/commandes en cours ont un délai borné.
 
+## Mode autonome et bandeau
+
+Activer **Autonome** dans l’espace de travail puis démarrer un objectif, par exemple
+« Occupe-toi de mon PC et traite les messages affichés ». Le bandeau contient un champ
+pour parler à l’agent pendant son exécution. Les messages deviennent des consignes pour
+la prochaine décision et réveillent la veille locale.
+
+Ce mode n’est pas illimité : par défaut 60 minutes, 20 appels IA et au moins 30 secondes
+entre deux appels automatiques. En l’absence de message, l’app compare localement de
+petites signatures de l’écran ; un écran inchangé ne consomme aucun appel IA. Stop reste
+disponible. Les limites se règlent dans Paramètres (5–240 min, 2–80 appels, 15–300 s).
+
+## Montage vidéo, mouvement et audio
+
+Choisir le profil **Montage vidéo** pour utiliser Premiere Pro, CapCut ou DaVinci Resolve.
+L’agent privilégie leurs raccourcis, sauvegarde régulièrement et vérifie timeline,
+tête de lecture et export à l’écran. Le résultat dépend de l’interface/version du logiciel
+et du modèle vision ; il ne remplace pas les API officielles de ces éditeurs.
+
+L’action d’observation temporelle prend 2 à 4 captures chronologiques sur 1 à 6 secondes.
+Elle est réservée aux animations et à la lecture vidéo, car plusieurs images coûtent plus
+qu’une capture.
+
+Pour enregistrer une vraie vidéo, l’agent peut utiliser `record_video(seconds, fps)` :
+il enregistre l’écran en MP4 (H.264) et sauvegarde le fichier dans `data/recordings/`.
+Durée bornée de 1 à 30 secondes, cadence de 2 à 15 images par seconde. Le clip peut être
+ouvert directement dans Premiere Pro, CapCut ou DaVinci Resolve. L’encodage utilise un
+ffmpeg embarqué dans l’application (aucune installation séparée).
+
+Pour analyser un audio, écrivez son chemin exact dans l’objectif ou dans le bandeau.
+Formats : MP3, WAV, M4A, AAC, OGG, FLAC, OPUS, 20 Mo maximum. L’analyse intégrée utilise
+actuellement Gemini avec un modèle compatible audio. L’application n’écoute jamais le
+microphone et n’envoie pas un fichier choisi uniquement par l’IA.
+
 ## Chat
 
 Choisir l’onglet Chat. Cocher l’option de capture si l’on veut joindre le bureau au message.

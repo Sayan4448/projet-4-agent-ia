@@ -276,12 +276,12 @@ def get_window_rect_by_hwnd(hwnd) -> dict:
 
 def find_window(title: str):
     """Case-insensitive substring match on window titles (widest wins)."""
-    t = (title or "").lower().strip()
+    t = fold(title).strip()
     if not t:
         return None
     best = None
     for hwnd, wtitle in _enum_windows():
-        if t in wtitle.lower():
+        if t in fold(wtitle):
             try:
                 r = get_window_rect_by_hwnd(hwnd)
             except Exception:  # noqa: BLE001
@@ -383,6 +383,15 @@ def _capture_window_fallback(hwnd, window_title, rect):
     return _capture_screen()
 
 
+def capture_frame():
+    """Raw PIL RGB image of the full desktop, for video recording.
+
+    Distinct from `take_screenshot`: no grid, no downscale, no base64, no copy
+    saved to disk — video recording needs the raw pixels as fast as possible.
+    """
+    return _capture_screen().convert("RGB")
+
+
 def take_screenshot(grid: bool = False, max_width: int = 0,
                     window_title: str | None = None,
                     jpeg_quality: int = 0) -> str:
@@ -441,6 +450,8 @@ def capture_for_model(grid: bool = False, max_width: int = 0,
         img = _capture_screen()
 
     real_w, real_h = img.size
+    if real_w <= 0 or real_h <= 0:
+        raise RuntimeError("La capture obtenue est vide. Restaure ou redimensionne la fenêtre cible.")
     shrink = 1.0
     if max_width and max_width < real_w:
         shrink = max_width / real_w
@@ -464,6 +475,12 @@ def capture_for_model(grid: bool = False, max_width: int = 0,
         from datetime import datetime
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         (shots_dir() / f"shot_{stamp}.{ext}").write_bytes(data)
+        saved = sorted(shots_dir().glob("shot_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in saved[120:]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
     except OSError:
         pass
 

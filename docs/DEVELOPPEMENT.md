@@ -24,6 +24,7 @@ nécessaire pour lancer l’interface native.
 | `agent_screen/__main__.py` | Lancement par `python -m agent_screen` |
 | `agent_screen/gui.py` | Interface native, événements, paramètres et Chat |
 | `agent_screen/conversations.py` | Discussions locales, favoris et écriture atomique |
+| `agent_screen/media.py` | Captures temporelles bornées, enregistrement vidéo MP4 et analyse audio explicite |
 | `agent_screen/overlay.py` | Curseur transparent aux clics et bandeau d’activité |
 | `agent_screen/agent.py` | Boucle IA, vocabulaire d’actions, Stop, lots et historique |
 | `agent_screen/browser_mode.py` | Session navigateur dédiée, liste d’actions autorisées |
@@ -33,13 +34,12 @@ nécessaire pour lancer l’interface native.
 | `agent_screen/input_control.py` | Souris/clavier bureau, Unicode et PowerShell |
 | `agent_screen/apps.py`, `app_catalog.py` | Résolution et lancement des applications |
 | `agent_screen/paths.py` | Emplacements développement/installé |
-| `agent_screen/server.py` | Interface HTTP historique, facultative, pas lancée par l’app |
+| `agent_screen/server.py` | Interface HTTP historique facultative, non lancée par l’app native |
 | `scripts/test_*.py` | Tests unitaires/régression |
 | `scripts/smoke_desktop.py` | Vérification interactive de l’UI et de la saisie |
 | `scripts/measure_icons.py` | Mesure optionnelle utilisant un modèle réel et du quota |
 | `scripts/make_icon.py`, `assets/app.ico` | Génération et ressource de l’icône |
 | `scripts/build_windows.ps1` | Compilation Windows EXE/MSI et sommes SHA-256 |
-| `scripts/build_msi.sh` | Ancien point d’entrée Git Bash |
 | `AgentScreen.spec`, `installer/AgentScreen.wxs` | Définition PyInstaller et Windows Installer |
 | `.github/workflows/` | Vérifications et livraison lors d’un tag |
 | `.env.example` | Exemple sans secrets |
@@ -85,7 +85,7 @@ Si les outils sont déjà dans `tools/wix311`, ils sont détectés automatiqueme
 powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1 -WixBin "C:\Program Files (x86)\WiX Toolset v3.11\bin"
 ```
 
-Résultats : `dist/AgentScreen.exe`, `dist/Projet4-AgentIA-1.7.0.msi`,
+Résultats : `dist/AgentScreen.exe`, `dist/Projet4-AgentIA-<version>.msi`,
 `dist/SHA256SUMS.txt`. PyInstaller embarque Python, les bibliothèques et le pilote
 Playwright. Les navigateurs système ne sont pas redistribués. La compilation nécessite
 Windows ; le lancement de l’EXE ne nécessite pas l’environnement de compilation.
@@ -94,7 +94,7 @@ Windows ; le lancement de l’EXE ne nécessite pas l’environnement de compila
 
 1. Mettre à jour `agent_screen/__init__.py`, `installer/AgentScreen.wxs` et `CHANGELOG.md`.
 2. Exécuter les tests et le build, vérifier les fichiers et la somme SHA-256.
-3. Créer/pousser un tag `v1.7.0` (adapter à la version).
+3. Créer/pousser un tag correspondant à la version, par exemple `v1.9.0`.
 4. Le workflow Release reconstruit les binaires et les joint à la Release GitHub.
    Publication manuelle possible avec `gh release create` et les trois artefacts.
 

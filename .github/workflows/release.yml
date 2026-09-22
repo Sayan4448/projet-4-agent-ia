@@ -16,7 +16,8 @@ jobs:
       - run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
-      - run: .\.venv\Scripts\python.exe -m unittest scripts.test_desktop scripts.test_modes scripts.test_conversations -v
+      - run: .\.venv\Scripts\python.exe -m unittest discover -s scripts -p "test_*.py" -v
+      - run: .\.venv\Scripts\python.exe -m pip check
       - name: Ensure WiX 3 tools
         shell: pwsh
         run: |
@@ -25,6 +26,11 @@ jobs:
           }
       - shell: powershell
         run: ./scripts/build_windows.ps1
+      - name: Smoke test packaged browser
+        shell: pwsh
+        run: |
+          & .\dist\AgentScreen.exe --self-test-browser "$env:TEMP\projet4-browser-check.json"
+          if ($LASTEXITCODE -ne 0) { throw "Packaged browser self-test failed" }
       - uses: actions/upload-artifact@v4
         with:
           name: Projet4-AgentIA-Windows
@@ -39,6 +45,7 @@ jobs:
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          gh release view $tag
-          if ($LASTEXITCODE -ne 0) { gh release create $tag --title "Projet 4, agent IA $tag" --notes-file CHANGELOG.md }
+          gh release view $tag *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+          if (-not $exists) { gh release create $tag --title "Projet 4, agent IA $tag" --notes-file CHANGELOG.md }
           gh release upload $tag dist/AgentScreen.exe (Get-ChildItem dist/Projet4-AgentIA-*.msi).FullName dist/SHA256SUMS.txt --clobber

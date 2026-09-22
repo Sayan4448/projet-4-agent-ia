@@ -389,9 +389,12 @@ def launch_app(name: str, wait: float = 8.0, keyboard_fallback=None) -> dict:
     # already running? focus it — instant, and it never confuses look-alike icons
     running = find_running_window(patterns, exes)
     if running:
-        display.activate_window(running)
-        return {"opened": raw, "ok": True, "method": "focus",
-                "already_running": True, "window": running, "verified": True}
+        activated = display.activate_window(running)
+        return {"opened": raw, "ok": bool(activated.get("ok")), "method": "focus",
+                "already_running": True, "window": running,
+                "verified": bool(activated.get("ok")),
+                **({"error": activated.get("error", "activation failed")}
+                   if not activated.get("ok") else {})}
 
     before = {w["title"] for w in display.interesting_windows(0)}
     tries = []
