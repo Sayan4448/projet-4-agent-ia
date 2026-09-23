@@ -93,6 +93,43 @@ class AgentAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * Scroll the scrollable node containing/around (x,y) in *device* px —
+     * more reliable than a swipe for nested lists. Falls back to gesture.
+     */
+    fun scrollAt(px: Float, py: Float, direction: String, amount: Float = 0.6f): Boolean {
+        val root = rootInActiveWindow
+        if (root != null) {
+            val node = deepestScrollableAt(root, px, py)
+            if (node != null) {
+                val action = when (direction.lowercase()) {
+                    "down" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    "left", "right" -> if (direction.lowercase() == "left")
+                        AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                        else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+                    else -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                }
+                val ok = node.performAction(action)
+                node.recycle()
+                if (ok) return true
+            }
+        }
+        return scroll(direction, amount)
+    }
+
+    private fun deepestScrollableAt(node: AccessibilityNodeInfo, x: Float, y: Float): AccessibilityNodeInfo? {
+        val r = Rect()
+        node.getBoundsInScreen(r)
+        if (!r.contains(x.toInt(), y.toInt())) return null
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val hit = deepestScrollableAt(child, x, y)
+            if (hit != null) { child.recycle(); return hit }
+            child.recycle()
+        }
+        return if (node.isScrollable) AccessibilityNodeInfo.obtain(node) else null
+    }
+
     // ------------------------------------------------------------ global
     fun global(name: String): Boolean = when (name.lowercase()) {
         "back" -> performGlobalAction(GLOBAL_ACTION_BACK)
