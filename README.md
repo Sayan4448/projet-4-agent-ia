@@ -10,7 +10,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
 ![Version](https://img.shields.io/badge/version-1.9.5-a78bfa)
 
-[Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md)
+[Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md) · [Toutes les versions](https://github.com/Sayan4448/projet-4-agent-ia/releases)
 
 </div>
 
