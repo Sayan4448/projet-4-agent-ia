@@ -20,3 +20,6 @@ tools/
 *.pem
 *.key
 _beta_migration/
+
+# Android Kotlin sources under a dir named 'data'
+!android/**/data/
