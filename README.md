@@ -25,6 +25,8 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 
 ![Interface native de Projet 4, agent IA](docs/interface.png)
 
+![Panneau d'activité de l'agent : journal des actions, dernière capture et discussion](docs/agent-panel.png)
+
 ## Fonctionnalités
 
 | | Ce que vous pouvez faire |
