@@ -8,12 +8,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -88,6 +88,7 @@ fun AgentScreen(onStartRun: (String) -> Unit) {
                 "error" -> log.add(LogLine("✗", data["message"]?.toString() ?: "erreur"))
                 "screenshot" -> {
                     val b64 = data["b64"]?.toString()
+                    log.add(LogLine("▣", "capture d'écran"))
                     if (b64 != null) {
                         try {
                             val bytes = Base64.decode(b64, Base64.DEFAULT)
@@ -114,114 +115,134 @@ fun AgentScreen(onStartRun: (String) -> Unit) {
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    // One LazyColumn for everything: adapts to any screen size, the journal
+    // stays readable while controls scroll away when needed.
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("✦ Projet 4, agent IA", style = MaterialTheme.typography.headlineSmall)
-        Text("Votre objectif. Son prochain mouvement.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        item {
+            Spacer(Modifier.size(6.dp))
+            Text("✦ Projet 4, agent IA", style = MaterialTheme.typography.headlineSmall)
+            Text("Votre objectif. Son prochain mouvement.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
 
         if (!a11yOn.value) {
-            Card(colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer)) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Service d'accessibilité requis",
-                        style = MaterialTheme.typography.titleSmall)
-                    Text("L'agent a besoin du service d'accessibilité pour toucher l'écran à ta " +
-                        "place. Active « Projet 4, agent IA » dans les paramètres Android.",
-                        style = MaterialTheme.typography.bodySmall)
-                    Button(onClick = {
-                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    }) { Text("Ouvrir les paramètres") }
+            item {
+                Card(colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Box(Modifier.padding(12.dp)) {
+                        androidx.compose.foundation.layout.Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Service d'accessibilité requis",
+                                style = MaterialTheme.typography.titleSmall)
+                            Text("L'agent a besoin du service d'accessibilité pour toucher " +
+                                "l'écran à ta place. Active « Projet 4, agent IA » dans les " +
+                                "paramètres Android.",
+                                style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = {
+                                context.startActivity(
+                                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }) { Text("Ouvrir les paramètres") }
+                        }
+                    }
                 }
             }
         }
 
-        OutlinedTextField(
-            value = goal,
-            onValueChange = { goal = it },
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Décris ton objectif… ex: « Ouvre YouTube et cherche des chats »") },
-            enabled = !running,
-            maxLines = 3,
-        )
+        item {
+            OutlinedTextField(
+                value = goal,
+                onValueChange = { goal = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Décris ton objectif… ex: « Ouvre YouTube et cherche des chats »") },
+                enabled = !running,
+                maxLines = 3,
+            )
+        }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = { onStartRun(goal.trim()) },
-                enabled = !running && goal.isNotBlank() && a11yOn.value,
-            ) { Text("Lancer l'agent") }
-            if (running) {
-                OutlinedButton(
-                    onClick = {
-                        context.startService(Intent(context, AgentService::class.java)
-                            .setAction(AgentService.ACTION_STOP))
-                    },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Arrêter") }
-            }
-            if (!Settings.canDrawOverlays(context)) {
-                TextButton(onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                            android.net.Uri.parse("package:${context.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                }) { Text("Curseur visuel") }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onStartRun(goal.trim()) },
+                    enabled = !running && goal.isNotBlank() && a11yOn.value,
+                ) { Text("Lancer l'agent") }
+                if (running) {
+                    OutlinedButton(
+                        onClick = {
+                            context.startService(Intent(context, AgentService::class.java)
+                                .setAction(AgentService.ACTION_STOP))
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error),
+                    ) { Text("Arrêter") }
+                }
+                if (!Settings.canDrawOverlays(context)) {
+                    TextButton(onClick = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:${context.packageName}"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }) { Text("Curseur visuel") }
+                }
             }
         }
 
         if (running && currentAction.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(10.dp).clip(RoundedCornerShape(50))
-                    .background(accentColor()))
-                Spacer(Modifier.size(8.dp))
-                Text("en cours: $currentAction", style = MaterialTheme.typography.bodySmall)
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(10.dp).clip(RoundedCornerShape(50))
+                        .background(accentColor()))
+                    Spacer(Modifier.size(8.dp))
+                    Text("en cours: $currentAction", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
         if (running) {
-            OutlinedTextField(
-                value = guideText,
-                onValueChange = { guideText = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Guide l'agent en direct…") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = {
-                    AgentService.activeService?.guide(guideText)
-                    guideText = ""
-                }),
-            )
+            item {
+                OutlinedTextField(
+                    value = guideText,
+                    onValueChange = { guideText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Guide l'agent en direct…") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = {
+                        AgentService.activeService?.guide(guideText)
+                        guideText = ""
+                    }),
+                )
+            }
         }
 
         lastShot?.let { bmp ->
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = "dernière capture",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop,
-            )
-        }
-
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(log) { line ->
-                Row {
-                    Text(line.icon, color = accentColor(),
-                        modifier = Modifier.widthIn(min = 20.dp))
-                    Text(line.text, style = MaterialTheme.typography.bodySmall)
-                }
+            item(key = "shot") {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = "dernière capture",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(bmp.width.toFloat() / bmp.height)
+                        .heightIn(max = 320.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentScale = ContentScale.Fit,
+                )
             }
         }
+
+        items(log) { line ->
+            Row {
+                Text(line.icon, color = accentColor(),
+                    modifier = Modifier.widthIn(min = 20.dp))
+                Text(line.text, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        item { Spacer(Modifier.size(16.dp)) }
     }
 }

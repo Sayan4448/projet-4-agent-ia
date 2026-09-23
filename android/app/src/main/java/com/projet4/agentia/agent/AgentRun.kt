@@ -120,8 +120,21 @@ class AgentRun(
                 val ry2 = (y2.coerceIn(0.0, 1000.0) / 1000.0 * realH).toFloat()
                 "swipe → ${needA11y().swipe(p1.first, p1.second, rx2, ry2)}"
             }
-            "scroll" -> "scroll → ${needA11y().scroll(args.optString("direction", "up"))}"
-            "type_text" -> "type_text → ${needA11y().typeText(args.optString("text", ""))}"
+            "scroll" -> {
+                val dir = args.optString("direction", "up")
+                val hasPt = args.has("x") && args.has("y")
+                val ok = if (hasPt) {
+                    val (x, y) = pt()
+                    needA11y().scrollAt(x, y, dir)
+                } else needA11y().scroll(dir)
+                "scroll $dir → $ok"
+            }
+            "type_text" -> {
+                val text = args.optString("text", "")
+                val ok = needA11y().typeText(text)
+                val preview = text.take(80)
+                "écrit «$preview» → $ok"
+            }
             "press_enter" -> "enter → ${needA11y().pressEnter()}"
             "press_back" -> "back → ${needA11y().global("back")}"
             "press_home" -> "home → ${needA11y().global("home")}"
@@ -160,6 +173,8 @@ you can check.
 - To fill a text field: tap its bounds center first, then type_text on the next
   step once the field is focused (then press_enter to submit if needed).
 - scroll(direction='up') scrolls the content upward = reveals content BELOW.
+  Prefer giving scroll x,y coords aimed at the list/element when it is not
+  fullscreen — a node's native scroll beats a blind swipe.
 - If an action reports failure or the screenshot shows no change, change
   strategy: re-aim at the element center, scroll to reveal it, or use the UI
   tree's exact bounds. Never repeat the identical failing action.
@@ -229,6 +244,7 @@ you can check.
             return mapOf("outcome" to "error", "summary" to "capture indisponible")
         }
         var f = frame!!   // non-null from here on
+        emit("screenshot", mapOf("b64" to f.base64, "mime" to f.mime))
 
         val contextText = ("Goal: $goal. All x/y action coordinates MUST be NORMALIZED " +
             "integers from 0 to 1000 (0=left/top edge, 1000=right/bottom edge), as labeled " +
