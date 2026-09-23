@@ -85,9 +85,11 @@ class BrowserSession:
     def point(self, args):
         if args.get("x") is None or args.get("y") is None:
             raise ValueError("Le mode navigateur exige x et y pour chaque action de souris.")
-        x, y = float(args["x"]) * self.scale, float(args["y"]) * self.scale
-        if not (0 <= x < self.size[0] and 0 <= y < self.size[1]):
+        # normalized 0-1000 coordinates (same convention as the desktop agent)
+        if not (-50 <= float(args["x"]) <= 1050 and -50 <= float(args["y"]) <= 1050):
             raise ValueError("Coordonnées hors de la page du navigateur.")
+        x = min(1000.0, max(0.0, float(args["x"]))) / 1000 * self.size[0]
+        y = min(1000.0, max(0.0, float(args["y"]))) / 1000 * self.size[1]
         return x, y
 
     def cursor_position(self, args):

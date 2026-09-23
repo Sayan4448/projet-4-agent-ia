@@ -149,7 +149,7 @@ class TestReliabilityFixes(unittest.TestCase):
             res = run.run()
         self.assertEqual(res["outcome"], "done")
         self.assertIn("Brave", prompts[0])                       # windows inventory sent
-        self.assertIn("mouse_click(x=5, y=5)", run.history[0]["summary"])
+        self.assertIn("mouse_click(x=6, y=6)", run.history[0]["summary"])  # 5/1000 -> real px
         self.assertIn("finished", [ev for ev, _ in events])
 
     def test_prompt_lists_open_windows_and_never_asks_to_click_icons(self):
@@ -164,22 +164,24 @@ class TestReliabilityFixes(unittest.TestCase):
         # reported clicks landing on the label / between two rows
         self.assertIn("MIDDLE of the ROW", agent.SYSTEM_PROMPT)
 
-    def test_grid_labels_every_hundred_pixels_for_click_precision(self):
-        """Labels every 200px made the model interpolate over half a row: a click
-        aimed at a contact's name landed off the row. Labels now come every 100px."""
+    def test_grid_labels_match_the_normalized_coordinate_space(self):
+        """The grid labels must read the SAME normalized 0-1000 coordinates the
+        model is asked to emit — otherwise its '100' lands at image px 100."""
         from PIL import Image, ImageDraw
         drawn = []
         real_text = ImageDraw.ImageDraw.text
 
         def spy(self, xy, text, *a, **k):
-            drawn.append(int(xy[0]))
+            drawn.append((int(xy[0]), str(text)))
             return real_text(self, xy, text, *a, **k)
 
         img = Image.new("RGB", (1280, 720), (255, 255, 255))
         with patch.object(ImageDraw.ImageDraw, "text", spy):
             display._draw_grid(img, 1280, 720, 1.0)
-        self.assertIn(102, drawn)    # label at x=100 (drawn at px+2)
-        self.assertIn(202, drawn)    # label at x=200
+        # label '100' sits at normalized x=100 -> 100/1000*1280 = px 128 (+2)
+        self.assertIn((130, "100"), drawn)
+        self.assertIn((258, "200"), drawn)   # '200' at normalized 200 -> px 256 (+2)
+        self.assertIn("1000", [t for _x, t in drawn])
 
     def test_summarize_reports_failure_to_the_model(self):
         self.assertIn("FAILED", agent._summarize(
@@ -400,21 +402,22 @@ class TestReliabilityFixes(unittest.TestCase):
         self.assertFalse(broken["ok"])
 
     def test_grid_lines_sit_on_the_real_pixel_labels(self):
-        """The precision claim of the grid: the line the model reads as '600'
-        must be drawn at the image pixel that a real x=600 becomes (600*scale)."""
+        """The precision claim of the grid: the line labeled '600' must be drawn
+        at the image pixel that normalized 600 maps to (600/1000 * width)."""
         from PIL import Image
         real_w, real_h, scale = 1920, 1080, 1.5
         img = display._draw_grid(Image.new("RGB", (1280, 720)), real_w, real_h, scale)
         drawn = []
+        scan_y = 380   # between two horizontal grid lines (they sit every ~36 px)
         for x in range(img.width):
-            r, g, b = img.getpixel((x, img.height // 2))
+            r, g, b = img.getpixel((x, scan_y))
             if r > g + 20 and r > b + 20 and r > 20:      # the red grid line, blended
                 if not drawn or x - drawn[-1][-1] > 2:    # a new line (2 px wide)
                     drawn.append([x])
                 else:
                     drawn[-1].append(x)
         starts = [run[0] for run in drawn]
-        expected = [int(x * scale) for x in range(0, 900, 100)]   # what fits in 1280 px
+        expected = [round(n * 1280 / 1000) for n in range(0, 1000, 50)]
         self.assertEqual(starts[:len(expected)], expected)
 
     def test_alive_helper_rejects_a_closed_dialog(self):

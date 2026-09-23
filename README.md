@@ -8,7 +8,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows_10%2F11-x64-8b5cf6)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
-![Version](https://img.shields.io/badge/version-1.9.5-a78bfa)
+![Version](https://img.shields.io/badge/version-1.9.6-a78bfa)
 
 [Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md) · [Toutes les versions](https://github.com/Sayan4448/projet-4-agent-ia/releases)
 
@@ -49,7 +49,7 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 
 ## Installation rapide
 
-1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.5.msi`.
+1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.6.msi`.
 2. Lancer le MSI puis ouvrir **Projet 4, agent IA** depuis le Bureau ou le menu Démarrer.
 3. Dans **Paramètres**, choisir un fournisseur, charger les modèles, sélectionner un
    modèle puis **Tester la connexion**. Pour les captures, il faut un modèle avec vision.

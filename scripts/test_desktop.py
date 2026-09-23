@@ -92,9 +92,11 @@ class DesktopTests(unittest.TestCase):
     def test_coordinates_keep_capture_origin_even_if_window_moves(self):
         run = agent.AgentRun("test", "gemini", window_mode=True, window_title="Test")
         run.scale = 1.5
-        run.geometry = {"origin": (-1920, 100), "scale_y": 1.6}
+        run.geometry = {"origin": (-1920, 100), "scale_y": 1.6,
+                        "real_w": 1920, "real_h": 1080}
         with patch.object(display, "get_window_rect", return_value={"x": 900, "y": 500}) as lookup:
-            self.assertEqual(run._to_real({"x": 100, "y": 100}), {"x": -1770, "y": 260})
+            # normalized: 100/1000*1920 - 1920, 100/1000*1080 + 100
+            self.assertEqual(run._to_real({"x": 100, "y": 100}), {"x": -1728, "y": 208})
         self.assertFalse(lookup.called)
 
     def test_missing_target_window_never_falls_back_to_other_apps(self):

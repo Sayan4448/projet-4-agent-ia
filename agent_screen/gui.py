@@ -1086,6 +1086,7 @@ class App:
         elif ev == "thought":
             if self.overlay:
                 self.overlay.status(f"Étape {msg['step']} · Analyse")
+                self.overlay.log(f"💭 {msg['text'][:90]}")
             self._record("thought", msg["text"], msg["step"])
             self._add_card(f"💭 {msg['step']} · {self._('thinking')}", msg["text"],
                            color=TXT, accent=ACC)
@@ -1101,6 +1102,7 @@ class App:
             self._add_card(title, f"{msg['name']}({args}){hold}", color=color, accent=color)
             if self.overlay:
                 self.overlay.status(f"{msg['step']}.{msg.get('sub', 1)} · {msg['name']}")
+                self.overlay.log(f"⚡ {msg['name']}({args})"[:110])
             self._log(f"step {msg['step']}.{msg.get('sub', 1)}: {msg['name']}({args}){hold}")
         elif ev == "screenshot":
             sub = f".{msg['sub']}" if msg.get("sub") else ""
@@ -1148,6 +1150,8 @@ class App:
             self._record("done", msg["text"])
             self._add_card(T(self.lang, "reached"), msg["text"], color=OK, accent=OK)
             self._log("✔ " + msg["text"])
+            if self.overlay:
+                self.overlay.log("✔ " + msg["text"][:90])
         elif ev == "error":
             self._record("error", msg["text"])
             self._add_card(T(self.lang, "failed"), msg["text"], color=ERR, accent=ERR)
@@ -1155,8 +1159,12 @@ class App:
         elif ev == "action_error":
             self._record("action_error", msg["text"])
             self._add_card(T(self.lang, "action_failed"), msg["text"], color=ERR, accent=ERR)
+            if self.overlay:
+                self.overlay.log(f"✖ {msg['text'][:90]}")
         elif ev == "finished":
             outcome = msg.get("outcome", "done")
+            if self.overlay:
+                self.overlay.log(f"■ Fin : {outcome}")
             self._save_run_session(outcome)
             if outcome == "done":
                 self._finish("✔")

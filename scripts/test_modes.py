@@ -59,8 +59,9 @@ class ModesTests(unittest.TestCase):
         page = Mock(url="https://example.invalid")
         with patch.object(session, "_active_page", return_value=page):
             session.execute("mouse_click", {"x": 20, "y": 30})
-            page.mouse.click.assert_called_once_with(40, 60, button="left", click_count=1)
-            for args in ({}, {"x": -1, "y": 2}, {"x": 9999, "y": 1}):
+            # normalized 0-1000 -> page px: 20/1000*1280, 30/1000*800
+            page.mouse.click.assert_called_once_with(25.6, 24.0, button="left", click_count=1)
+            for args in ({}, {"x": -200, "y": 2}, {"x": 9999, "y": 1}):
                 with self.assertRaises(ValueError):
                     session.execute("mouse_click", args)
 
@@ -135,11 +136,13 @@ class ModesTests(unittest.TestCase):
     def test_scroll_coordinates_are_scaled_and_bounded(self):
         run = agent.AgentRun("goal", "gemini")
         run.scale = 1.5
-        run.geometry = {"origin": (-1920, 0), "scale_y": 1.5, "width": 1280, "height": 720}
+        run.geometry = {"origin": (-1920, 0), "scale_y": 1.5, "width": 1280, "height": 720,
+                        "real_w": 1920, "real_h": 1080}
         for name in ("mouse_scroll", "mouse_hscroll"):
             self.assertIn(name, agent.PIXEL_ACTIONS)
-        self.assertEqual(run._to_real({"x": 100, "y": 200}), {"x": -1770, "y": 300})
-        for args in ({"x": 1280, "y": 10}, {"x": -1, "y": 20}, {"x": 100}):
+        # normalized 0-1000 -> real px: 100/1000*1920 + (-1920), 200/1000*1080
+        self.assertEqual(run._to_real({"x": 100, "y": 200}), {"x": -1728, "y": 216})
+        for args in ({"x": 9999, "y": 10}, {"x": -200, "y": 20}, {"x": 100}):
             with self.assertRaises(ValueError):
                 run._to_real(args)
 
@@ -177,19 +180,21 @@ class ModesTests(unittest.TestCase):
         physical.assert_not_called()
         self.assertFalse(result["ok"])
 
-    def test_auto_overlay_stays_hidden_between_actions(self):
+    def test_auto_overlay_hides_for_captures_and_shows_while_working(self):
         root = tk.Tk()
         root.withdraw()
         overlay = AgentOverlay(root, lambda: None)
         try:
             overlay.start("Bureau")
-            overlay.show_after_action()
+            root.update()
+            self.assertTrue(overlay.hud.winfo_ismapped())      # visible while working
+            overlay.hide_for_action()                          # capture/click moment
             root.update()
             self.assertFalse(overlay.hud.winfo_ismapped())
-            overlay.set_mode("always")
+            overlay.show_after_action()                        # back when interacting
             root.update()
             self.assertTrue(overlay.hud.winfo_ismapped())
-            overlay.hide_for_action()
+            overlay.set_mode("hidden")
             root.update()
             self.assertFalse(overlay.hud.winfo_ismapped())
         finally:

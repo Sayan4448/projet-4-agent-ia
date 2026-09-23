@@ -1,5 +1,24 @@
 # Historique
 
+## 1.9.6
+
+- Coordonnées normalisées 0–1000 pour toutes les actions souris : les modèles
+  (Gemini en particulier) émettent nativement des positions sur une grille
+  normalisée, pas des pixels d'image. Les traiter comme des pixels plaçait les
+  clics systématiquement trop bas/à droite — proportionnellement à la position,
+  ce qui faisait cliquer ~3 lignes sous la cible (bug Discord). La grille de la
+  capture est désormais étiquetée en unités 0–1000 et la conversion applique la
+  taille réelle de la capture + l'origine de la fenêtre. Les petites sorties de
+  plage du modèle sont bornées au lieu d'être rejouées décalées.
+- Panneau d'activité en bas à droite (style Neural Agents) : journal horodaté
+  des pensées/actions/erreurs, miniature de la dernière capture et champ de
+  discussion avec l'agent. Il se masque pendant chaque capture et chaque clic,
+  puis réapparaît pendant que l'agent travaille (modes auto/toujours/caché).
+  Il est exclu des captures et l'agent ne peut pas cliquer dessus.
+- Le champ de discussion du panneau accepte vraiment le focus clavier (la
+  fenêtre n'est plus « non activable » pour l'utilisateur).
+- Correction du mode HUD « auto » qui ne réaffichait jamais le bandeau.
+
 ## 1.9.5
 
 - Souris virtuelle Windows par défaut : événements envoyés à la fenêtre cible sans
