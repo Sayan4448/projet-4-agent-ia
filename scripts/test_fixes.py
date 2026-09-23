@@ -84,6 +84,30 @@ class TestAgentScreen(unittest.TestCase):
                 self.assertEqual(len(fallback_calls), 1)
                 self.assertEqual(fallback_calls[0]["from_provider"], "gemini")
 
+    def test_gemini_overload_retries_a_sibling_model(self):
+        """A 503 'high demand' is model-level, not key-level: the same key is
+        retried on a healthy Gemini model instead of dying on 'all providers
+        failed' (gemini-3.5-flash-lite saturates while 2.5-flash answers)."""
+        seen = []
+
+        def fake_call(provider, key, model, *a, **kw):
+            seen.append(model)
+            if model == "gemini-3.5-flash-lite":
+                raise ai_client.AIError(
+                    "Les serveurs Google Gemini sont surchargés ou en panne (503).")
+            return f"ok via {model}"
+
+        cfg = {"provider": "gemini", "api_keys": {"gemini": "key12345678"},
+               "models": {"gemini": "gemini-3.5-flash-lite"},
+               "models_available": {"gemini": ["gemini-3.5-flash-lite",
+                                               "gemini-2.5-flash"]}}
+        with patch("agent_screen.ai_client._call_provider_single", side_effect=fake_call), \
+             patch("agent_screen.settings.load", return_value=cfg):
+            reply, prov = ai_client.chat_with_fallback("gemini", "hi")
+        self.assertEqual(prov, "gemini")
+        self.assertEqual(seen, ["gemini-3.5-flash-lite", "gemini-2.5-flash"])
+        self.assertEqual(reply, "ok via gemini-2.5-flash")
+
     def test_terminal_command(self):
         from agent_screen import input_control
         res = input_control.run_terminal_command("Write-Output 'Hello from PowerShell'")

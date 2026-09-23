@@ -33,6 +33,15 @@
 - **Noms épelés compris** : quand l'utilisateur dicte « L-E-S-G-A-Z-O »,
   l'agent tape le mot assemblé (LESGAZO / la forme visible à l'écran) au lieu
   des tirets littéraux.
+- **Repli de modèle Gemini** : un 503 « forte demande » est un problème du
+  modèle, pas de la clé — la même clé est retentée sur un modèle Gemini sain
+  (2.5-flash…) avant de déclarer l'échec, au lieu de tuer le run à l'étape 0.
+- **Discord sans visée pixel** : pour ouvrir un salon/contact, l'agent privilégie
+  le sélecteur rapide (Ctrl+K) + frappe vérifiée plutôt que de cliquer une ligne
+  de la barre latérale.
+- **Lancement d'app plus tolérant** : si le processus tourne sans fenêtre
+  (démarrage réduit en zone de notification, typique de Discord), l'exe est
+  relancé une fois pour restaurer la fenêtre, et l'attente passe à 20 s.
 
 ## 1.9.6
 

@@ -39,6 +39,12 @@ PROVIDER_NAMES = {
 
 SAFE_MAX_TOKENS = 1024
 
+# A Gemini 503 "high demand" is MODEL-level, not key-level: the same key keeps
+# working on a sibling model. When the configured model is overloaded these are
+# tried with the same key before falling back to another provider entirely.
+_GEMINI_MODEL_FALLBACKS = ("gemini-2.5-flash", "gemini-flash-latest",
+                         "gemini-2.5-flash-lite")
+
 MSG_RE = '"message"\\s*:\\s*"([^"]+)"'
 ERR_RE = '"error"\\s*:\\s*"([^"]+)"'
 
@@ -436,7 +442,39 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
             if cancel_event is not None and cancel_event.is_set():
                 raise AIError("Requête annulée.") from e
             err_msg = str(e)
-            _failed_keys[cand_key] = time.time()
+            if cand_provider == "gemini" and re.search(r"\(5\d\d\)", err_msg):
+                # "high demand" is model-level: the same key still works on a
+                # sibling model — try the healthy ones before abandoning Gemini
+                avail = set((cfg.get("models_available") or {}).get("gemini") or [])
+                for alt in _GEMINI_MODEL_FALLBACKS:
+                    if alt == cand_model or (avail and alt not in avail):
+                        continue
+                    try:
+                        res = _call_cancellable(
+                            cancel_event, cand_provider, cand_key, alt,
+                            system, prompt, b64_png, is_json, mime=mime,
+                            max_tokens=max(128, min(4096, int(max_tokens))))
+                        if isinstance(res, str) and res.strip():
+                            _failed_keys.pop(cand_key, None)
+                            if on_fallback:
+                                try:
+                                    on_fallback({"from_provider": cand_provider,
+                                                 "to_provider": cand_provider,
+                                                 "to_model": alt,
+                                                 "reason": err_msg,
+                                                 "attempt": i + 1})
+                                except Exception:
+                                    pass
+                            return res, cand_provider
+                        errors.append(f"{_provider_name(cand_provider)} ({alt}): réponse vide")
+                    except Exception as e2:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise AIError("Requête annulée.") from e2
+                        errors.append(f"{_provider_name(cand_provider)} ({alt}): {e2}")
+            # a 5xx overload is a problem with that model, not with the key:
+            # don't sink the key's other candidates below other providers
+            if not re.search(r"\(5\d\d\)", err_msg):
+                _failed_keys[cand_key] = time.time()
             errors.append(f"{_provider_name(cand_provider)}: {err_msg}")
 
             # Notify fallback if there is a next candidate
@@ -446,6 +484,7 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
                     on_fallback({
                         "from_provider": cand_provider,
                         "to_provider": next_p,
+                        "to_model": next_m,
                         "reason": err_msg,
                         "attempt": i + 1,
                     })

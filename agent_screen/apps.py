@@ -332,6 +332,17 @@ def _spawn(plan: dict) -> None:
         os.startfile(target)
 
 
+def _process_alive(exes) -> bool:
+    """Any of the app's exe names currently running (window or not)."""
+    names = [os.path.splitext(os.path.basename(str(e)))[0] for e in (exes or ()) if e]
+    if not names:
+        return False
+    listed = ",".join(f"'{n}'" for n in names[:4])
+    return bool(_ps_lines(
+        f"Get-Process -Name {listed} -ErrorAction SilentlyContinue "
+        "| Select-Object -First 1 -ExpandProperty Name", timeout=6))
+
+
 def _wait_for_window(before, patterns, exes, wait: float):
     """(ok, title, verified) for a NEW window belonging to the app.
 
@@ -367,7 +378,7 @@ def _wait_for_window(before, patterns, exes, wait: float):
     return False, "", False
 
 
-def launch_app(name: str, wait: float = 15.0, keyboard_fallback=None) -> dict:
+def launch_app(name: str, wait: float = 20.0, keyboard_fallback=None) -> dict:
     """Launch (or focus) an app and VERIFY that it really came up.
 
     `keyboard_fallback(name)` is an optional callable used only as a last
@@ -409,6 +420,16 @@ def launch_app(name: str, wait: float = 15.0, keyboard_fallback=None) -> dict:
             tries.append(f"{plan['method']}: {e}")
         else:
             ok, found_title, verified = _wait_for_window(before, patterns, exes, wait)
+            if not ok and exes and _process_alive(exes):
+                # running but windowless: single-instance apps that start
+                # minimized to the tray (Discord is the classic case) restore
+                # their window when the exe is invoked a second time
+                try:
+                    _spawn(plan)
+                except Exception:  # noqa: BLE001
+                    pass
+                ok, found_title, verified = _wait_for_window(
+                    before, patterns, exes, 8.0)
             if ok:
                 return {"opened": raw, "ok": True, "method": plan["method"],
                         "window": found_title, "verified": verified}
