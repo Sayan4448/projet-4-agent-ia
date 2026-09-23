@@ -1,11 +1,42 @@
 # Historique
 
+## 1.9.1
+
+- Enregistrement vidéo réel (`record_video`) : clip MP4 H.264 de 1 à 30 s,
+  enregistré dans `data/recordings`, via un ffmpeg embarqué (imageio-ffmpeg).
+- Curseur IA **bleu** : le marqueur de clic reste affiché là où l’IA a cliqué,
+  5 secondes par défaut et réglable de 0 à 30 s dans Paramètres.
+- Captures d’écran nettement plus rapides : redimensionnement BILINEAR, JPEG sans
+  optimisation, nettoyage du dossier des captures différé (~45 % plus rapide).
+- Historique des sessions du mode Agent (bouton 🗂 Historique) : chaque run est
+  enregistré (objectif, pensées, actions, réponses, consignes, résultat) et peut
+  être relu dans l’activité ou supprimé. Les réponses de l’agent en mode autonome
+  sont désormais affichées dans l’activité et le bandeau flottant.
+- Tâches menées jusqu’au bout : après un lancement, l’agent attend la fenêtre
+  principale (15 s max), ferme les fenêtres bloquantes (pub, accueil, connexion…) et
+  **doit vérifier la fenêtre avant de terminer** — terminer juste après avoir ouvert le
+  menu Démarrer ou un écran de chargement est refusé. Le menu Démarrer ne compte plus
+  comme « application ouverte », et l’agent ne doit plus ouvrir le menu Démarrer lui-même.
+- Mode autonome réparé : les réglages du dialogue Paramètres (Autonome, Éco, curseur,
+  limites) sont recopiés dans l’onglet Agent au lieu d’être annulés par une case
+  restée à son ancienne valeur.
+- Veille autonome allégée : un échantillon d’écran minuscule remplace la capture
+  complète + écriture disque toutes les 3 secondes ; la capture réelle n’a lieu
+  qu’au réveil (message ou changement d’écran).
+- Souris : le curseur est garé au-dessus de la barre des tâches (l’ancien coin
+  bas-droite déclenchait l’aperçu Aero et faussait la capture suivante), et
+  `mouse_scroll` accepte des coordonnées x,y pour défiler au bon endroit.
+- Clics plus précis : grille étiquetée tous les 100 px au lieu de 200, et consigne de
+  viser le **milieu de la ligne** cliquable plutôt que son texte, avec un ré-essai
+  légèrement décalé quand un clic n’a aucun effet visible.
+- Correction du nombre maximal d’étapes par défaut (12 → 20) dans le code,
+  l’interface et le test de régression.
+
 ## 1.9.0
 
 - Profil Montage vidéo pour Premiere Pro, CapCut et DaVinci Resolve.
 - Reconnaissance et lancement déterministe des trois logiciels de montage.
 - Observation de mouvement bornée à 6 secondes et 4 images au maximum.
-- Enregistrement vidéo réel (record_video) : clip MP4 H.264 de 1 à 30 s, enregistré dans data/recordings.
 - Analyse d’un fichier audio explicite avec Gemini, sans écoute permanente du micro.
 - Champ de discussion dans le bandeau flottant de l’agent.
 - Mode autonome borné en durée et en appels IA, avec veille et comparaison d’écran locales.

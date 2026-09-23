@@ -32,7 +32,9 @@ SYSTEM_PROMPT = (
     "NEVER click taskbar or desktop icons to open an app: look-alike logos get confused "
     "(Brave vs Discord, Chrome vs Edge) and you end up launching the wrong program, which is "
     "exactly the bug the user reported. open_app/focus_window is always the right move; "
-    "only click an icon when the user explicitly asks for it.\n"
+    "only click an icon when the user explicitly asks for it. NEVER press the Windows key or "
+    "type an app name in the Start menu yourself: that opens a menu, not the app. To open an "
+    "application the ONLY correct action is open_app(name=...).\n"
     "The titles of the windows currently open are given to you at every step under 'Open windows'.\n\n"
 
     "== 2. ICON / LOGO RECOGNITION (discriminative features) ==\n"
@@ -79,8 +81,28 @@ SYSTEM_PROMPT = (
     "already open you can also focus_window('Brave'), then hotkey(keys=['ctrl','l']), type_text(query), "
     "press_key('enter'). Never click or drag the address bar when a shortcut exists.\n\n"
 
-    "== 6. GROUND RULES ==\n"
+    "== 6. COMPLETING THE TASK ==\n"
+    "Launching something is never the goal by itself. After open_app/focus_window/"
+    "search_web/open_url, let the app finish loading (use wait(seconds=2..5) when it is "
+    "slow, e.g. CapCut or Premiere), then VERIFY on the NEXT screenshot that its main "
+    "window is really visible and usable. If a popup blocks it — ad, welcome screen, "
+    "login, update, trial or purchase dialog — dismiss it first: press_key('esc'), click "
+    "its close button, or click the right option ('Continuer', 'Skip', 'Plus tard'...), "
+    "then verify again on a new screenshot. Only declare done when the app is ready to "
+    "use AND no blocking dialog remains; name in your summary the window you verified. "
+    "If open_app reports 'window NOT confirmed', a window appeared but it may not be the "
+    "app (splash screen, the Start menu): check the screenshot before concluding.\n\n"
+
+    "== 7. GROUND RULES ==\n"
     "- Verify on the next screenshot that what you did really happened.\n"
+    "- The mouse is parked away between steps to give it back to the user. For a drag "
+    "or a scroll inside a pane, chain mouse_move(x,y) to the target area and "
+    "mouse_drag(x,y) or mouse_scroll(amount,x,y) in the SAME reply.\n"
+    "- To open a list item (contact, message, file, search result), aim at the MIDDLE of "
+    "the ROW, not at its text label: the whole row is clickable, while a click on the "
+    "label or near an edge can fall in the gap between two rows and do nothing. If a "
+    "click had no visible effect, do NOT repeat the exact same coordinates: nudge the "
+    "aim a few pixels toward the centre of the item and click again.\n"
     "- If an action returned ok=false or an error, change strategy instead of repeating it.\n"
     "- An action can report ok=true and still have had no effect: before repeating it, look at the "
     "screenshot. A dialog may be waiting (answer it: press_key('n') to refuse saving, 'esc' to "
@@ -124,7 +146,7 @@ ACTIONS = {
     "mouse_click": Action("mouse_click(x,y,button='left|right|middle',clicks=1)", pixel=True),
     "mouse_double_click": Action("mouse_double_click(x,y)", pixel=True),
     "mouse_drag": Action("mouse_drag(x,y)", pixel=True),
-    "mouse_scroll": Action("mouse_scroll(amount positive=up)"),
+    "mouse_scroll": Action("mouse_scroll(amount positive=up, optional x,y)"),
     "mouse_hscroll": Action("mouse_hscroll(amount positive=right)"),
     "type_text": Action("type_text(text)"),
     "press_key": Action("press_key(key like enter,esc,tab,ctrl,alt,win,shift,space,"
@@ -148,6 +170,11 @@ CLASSIC_ACTIONS = ", ".join(a.signature for a in ACTIONS.values() if not a.game)
 GAME_ACTIONS = (", ".join(a.signature for a in ACTIONS.values() if a.game)
                 + "  # dx right+ / dy down+, for aiming")
 PIXEL_ACTIONS = {name for name, action in ACTIONS.items() if action.pixel}
+
+# Opening a window/page must be verified before the agent may finish: a launch
+# can report ok while a splash screen, an ad or the Start menu is what actually
+# appeared. This is what used to stop "ouvre CapCut" at the Start menu.
+LAUNCH_ACTIONS = {"open_app", "focus_window", "open_url", "search_web"}
 
 def _window_origin(title: str):
     """Top-left corner (screen coords) of the window, or None if not found."""
@@ -203,7 +230,7 @@ def execute_action(name: str, args: dict) -> dict:
         return input_control.mouse_drag(*_xy(args, "mouse_drag"),
                                        args.get("duration", 0.4))
     if name == "mouse_scroll":
-        return input_control.mouse_scroll(args.get("amount", 0))
+        return input_control.mouse_scroll(args.get("amount", 0), args.get("y"), args.get("x"))
     if name == "mouse_hscroll":
         return input_control.mouse_hscroll(args.get("amount", 0))
     if name == "type_text":
@@ -371,6 +398,7 @@ class AgentRun:
         self.history = []  # [{"step": i, "summary": "name(arg) name2(arg)"}]
         self._calls = 0
         self._started_at = 0.0
+        self._pending_verify = False   # a launch happened; must be verified before done
         self._authorized_text = goal.lower()
         if self.eco_mode:
             self.image_width = min(self.image_width or 960, 960)
@@ -472,6 +500,9 @@ class AgentRun:
             " VIDEO EDITING PROFILE: Premiere Pro, CapCut and DaVinci Resolve are supported through "
             "their visible UI and deterministic app launch. Prefer keyboard shortcuts, save often, "
             "never overwrite source media, and verify timeline/playhead/export dialogs. "
+            "After launching one of these editors, wait for the main window and dismiss any "
+            "blocking popup (CapCut often shows an ad or welcome screen; Premiere may show a "
+            "splash or home screen) before declaring the task done. "
             "Use observe_motion only when a static frame cannot reveal playback/animation; it costs "
             "up to four image inputs. Use record_video(seconds,fps) to capture a real MP4 clip "
             "(a screen recording saved to data/recordings) when the user wants an actual short "
@@ -480,27 +511,42 @@ class AgentRun:
         )
 
     def _autonomous_wait(self, previous_image):
-        """Free local wait: resume on guidance or a meaningful visual change."""
+        """Free local wait: resume on guidance or a meaningful visual change.
+
+        Uses a tiny screen sample instead of a full model capture: this loop runs
+        every few seconds for up to an hour, so it must not encode base64, write
+        screenshots to disk or build a payload until it actually wakes up.
+        """
         if not self.autonomous_mode:
             return previous_image, False
         self.emit("autonomous_wait", calls=self._calls, budget=self.autonomous_max_calls)
         not_before = time.monotonic() + self.autonomous_min_interval
         deadline = self._started_at + self.autonomous_minutes * 60
         old = _image_fingerprint(previous_image)
-        latest = previous_image
         while time.monotonic() < deadline and not self.stopped:
             if self._has_guidance():
-                return latest, True
+                return self._fresh_shot(previous_image), True
             if self._stop.wait(min(3.0, max(0.1, deadline - time.monotonic()))):
                 break
             try:
-                latest = self._shot()
-                if (time.monotonic() >= not_before
-                        and _fingerprint_distance(old, _image_fingerprint(latest)) >= 10):
-                    return latest, True
-            except Exception:
-                pass
-        return latest, False
+                if self.browser:
+                    sample = _image_fingerprint(self._shot())
+                else:
+                    sample = display.screen_fingerprint(
+                        self.window_title if self.window_mode else None)
+            except Exception:  # noqa: BLE001 - a locked desktop must not end the watch
+                continue
+            if (time.monotonic() >= not_before
+                    and _fingerprint_distance(old, sample) >= 10):
+                return self._fresh_shot(previous_image), True
+        return previous_image, False
+
+    def _fresh_shot(self, previous_image):
+        """One real model capture, only when the watch wakes up."""
+        try:
+            return self._shot()
+        except Exception:  # noqa: BLE001
+            return previous_image
 
     def _has_guidance(self):
         with self._lock:
@@ -547,13 +593,21 @@ class AgentRun:
         chain_rule = (
             ' Reply ONLY with JSON: {"thought": "...", "actions": '
             '[{"name": "...", "args": {...}, "hold_secs": 0.5}], "done": false, '
-            f'"summary": "", "message": "optional short reply to user"}} — up to {self.action_limit} actions per screenshot ("actions" may contain a '
-            'single item; a legacy single "action" object is also accepted). '
+            f'"summary": "", "message": "optional short reply to user"}} — up to {self.action_limit} action'
+            's per screenshot ("actions" may contain '
+            'a single item; a legacy single "action" object is also accepted). '
             "hold_secs (0.05–3.0) is optional and only meaningful for key_down/mouse_down. "
             "In autonomous mode, message may answer the user's live guidance without a desktop action. "
             "NEVER set done=true unless your previous actions really achieved the goal — "
             "claiming completion without acting is forbidden."
         )
+        if self.action_limit <= 1:
+            # one action per capture: chaining in the same reply is impossible,
+            # so do not promise it (each step ends with the mouse parked anyway)
+            chain_rule += (
+                " You get ONE action per screenshot: pick the single most useful "
+                "action; move+aim+click sequences are spread over consecutive steps."
+            )
         outcome = "max_steps"
         acted_so_far = False   # anti-hallucination: did we REALLY execute something?
         empty_replies = 0      # refused / empty model replies in a row
@@ -663,6 +717,23 @@ class AgentRun:
                                 "Rephrase the goal or switch model."))
                             break
                         continue
+                    if self._pending_verify:
+                        # something was just opened (or the Start menu was pressed):
+                        # force ONE verification step so a splash screen, an ad or the
+                        # Start menu is never mistaken for the app being open
+                        self._pending_verify = False
+                        self.history.append({"step": i, "summary": (
+                            "REFUSED to finish: you just opened something. On THIS screenshot, "
+                            "check the window is really the app and usable; dismiss any popup "
+                            "(publicité, accueil, connexion, mise à jour) with esc or its button; "
+                            "only then set done=true.")})
+                        self.emit("thought", step=i, text=(
+                            "⏳ Vérification de la fenêtre ouverte — je m'assure que l'app est "
+                            "prête et je ferme les pubs/popups." if self.lang == "fr" else
+                            "⏳ Verifying the opened window — making sure the app is ready and "
+                            "dismissing ads/popups."))
+                        steps.append(step)
+                        continue
                     step["done"] = True
                     step["summary"] = str(parsed.get("summary", "Done."))[:500]
                     outcome = "done"
@@ -734,6 +805,13 @@ class AgentRun:
                         hold = max(0.05, min(3.0, hold))
                     if not name:
                         continue
+
+                    # anything that opens a window (or the Start menu) needs a
+                    # verification step before the agent may declare success
+                    if name in LAUNCH_ACTIONS or (
+                            name == "press_key" and str(args.get("key", "")).strip().lower()
+                            in ("win", "winleft", "super")):
+                        self._pending_verify = True
 
                     try:
                         if name in PIXEL_ACTIONS and not self.browser:
@@ -816,16 +894,18 @@ class AgentRun:
                     if self.screenshot_each_action:
                         self.emit("screenshot", step=i, sub=j, image=self._shot())
 
-                # free the mouse between steps: park the cursor in the
-                # bottom-right corner (NOT top-left: that's the failsafe zone)
-                # so the user can use their PC while the agent thinks.
+                # free the mouse between steps: park the cursor on the right but
+                # ABOVE the taskbar. The exact bottom-right corner is Windows'
+                # "Show desktop" button: parking there triggered Aero Peek, which
+                # made the next screenshot show a ghosted desktop and confused the
+                # model's clicks. (NOT the top-left either: that's the failsafe.)
                 if (self.free_mouse and not self.game_mode and outcome != "stopped"
                         and step["actions"]):
                     try:
                         pinfo = display.screen_info().get("primary", {})
                         input_control.mouse_move(
                             max(10, int(pinfo.get("width_px", 1920)) - 8),
-                            max(10, int(pinfo.get("height_px", 1080)) - 8))
+                            max(10, int(pinfo.get("height_px", 1080)) - 120))
                     except Exception:  # noqa: BLE001
                         pass
 

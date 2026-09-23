@@ -31,6 +31,7 @@ from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_
                        migrate_legacy_keys, save, LOCAL_PROVIDERS)
 from .overlay import AgentOverlay
 from . import conversations
+from . import sessions
 
 PROVIDER_LABELS = {
     "gemini": "Google Gemini",
@@ -52,6 +53,12 @@ S = {
     "screen_info": ("🖥 Infos écran", "🖥 Screen info"),
     "web_page": ("🌐 Page locale", "🌐 Local page"),
     "web_failed": ("page locale indisponible", "local page unavailable"),
+    "history": ("🗂 Historique", "🗂 History"),
+    "history_title": ("Historique des sessions de l’agent", "Agent session history"),
+    "history_empty": ("Aucune session pour l’instant. Lance un objectif dans le mode Agent : il sera enregistré ici automatiquement.",
+                      "No session yet. Run a goal in Agent mode: it will be saved here automatically."),
+    "show_in_activity": ("Afficher dans l’activité", "Show in activity"),
+    "del": ("Supprimer", "Delete"),
     "busy": ("⚠ Un run contrôle déjà la souris", "⚠ A run already owns the mouse"),
     "agent_mode": (" 🤖 Mode Agent ", " 🤖 Agent Mode "),
     "chat_mode": (" 💬 Mode Chat ", " 💬 Chat Mode "),
@@ -112,6 +119,7 @@ S = {
     "action_failed": ("Action échouée", "Action failed"),
     "your_guidance": ("Ta consigne", "Your guidance"),
     "guidance_not_sent": ("Aucun agent en cours d'exécution.", "No agent is currently running."),
+    "agent_reply": ("💬 Réponse de l’agent", "💬 Agent reply"),
     "dbl_click": ("Double-clic pour agrandir l'image", "Double-click to enlarge image"),
     "enter_goal": ("Écris d'abord un objectif à accomplir.", "Enter a goal first."),
     "still_running": ("L'agent est encore en cours d'exécution. Voulez-vous l'arrêter et quitter ?",
@@ -284,6 +292,9 @@ class App:
         self.chat_sending = False
         self._chat_generation = 0
         self._web_starting = False
+        self._run_session = None   # agent session being recorded (persisted on finish)
+        self._run_events = None
+        self._pump_id = None
 
         root.title(f"⚡ {T(self.lang, 'app')} v{__version__}")
         root.geometry(f"1320x{min(880, root.winfo_screenheight() - 100)}")
@@ -337,8 +348,9 @@ class App:
         ttk.Button(bar, text=self._("settings"), style="TButton",
                    command=self._open_settings).pack(side="right", padx=(6, 0))
         ttk.Button(bar, text=self._("screen_info"), style="TButton",
-                   command=self._show_screen_info).pack(side="right")
-        # Native app navigation stays in this window.
+                   command=self._show_screen_info).pack(side="right", padx=(6, 0))
+        ttk.Button(bar, text=self._("history"), style="TButton",
+                   command=self._open_history).pack(side="right")
 
     def _refresh_badge(self):
         self.cfg = load()
@@ -533,6 +545,21 @@ class App:
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         self._add_card("✦ Votre copilote est prêt", "Décrivez une tâche, choisissez votre espace de travail, puis lancez l’agent.\n\nSes actions et captures apparaîtront ici.", color=MUT_LIGHT)
 
+    def _apply_cfg_to_controls(self, new_cfg):
+        """Mirror a saved config back into the Agent tab controls (one owner:
+        a setting changed in Settings must not be reverted by a stale checkbox)."""
+        self.mode_var.set(new_cfg["execution_mode"])
+        self.eco_var.set(new_cfg["eco_mode"])
+        self.profile_var.set(new_cfg["agent_profile"])
+        self.autonomous_var.set(new_cfg["autonomous_mode"])
+        self.cursor_var.set(new_cfg["virtual_cursor"])
+        self.limit_var.set(new_cfg["limit_actions_per_capture"])
+        self.action_count.set(new_cfg["actions_per_capture"])
+        self.game_var.set(new_cfg["game_mode"])
+        self.win_var.set(new_cfg["window_mode"])
+        self.win_selected = new_cfg["window_title"]
+        self._refresh_windows()
+
     def _save_run_options(self):
         try:
             count = int(self.action_count.get()) if hasattr(self, "action_count") else 3
@@ -645,7 +672,7 @@ class App:
         try:
             img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
             thumb = img.copy()
-            thumb.thumbnail((390, 230))
+            thumb.thumbnail((390, 230), resample=Image.BILINEAR, reducing_gap=2.0)
             photo = ImageTk.PhotoImage(thumb)
             self._thumb_refs.append(photo)
 
@@ -728,11 +755,16 @@ class App:
             # the poller can tell a live run from a dead one without a race
             agent.claim(run)
             if self.overlay is None:
-                self.overlay = AgentOverlay(self.root, self._stop_run, self._overlay_message)
+                self.overlay = AgentOverlay(self.root, self._stop_run, self._overlay_message,
+                                            linger=cfg.get("cursor_linger", 5))
+            else:
+                self.overlay.linger = float(cfg.get("cursor_linger", 5) or 0)
             mode_label = "Montage" if cfg["agent_profile"] == "video_editing" else (
                 "Navigateur" if cfg["execution_mode"] == "browser" else "Bureau")
             if cfg["autonomous_mode"]:
                 mode_label += " · Autonome"
+            self._run_session = sessions.new_session(goal, mode_label)
+            self._run_events = [{"kind": "goal", "step": 0, "text": goal}]
             self.overlay.start(mode_label)
             threading.Thread(target=run.run, daemon=True).start()
         except agent.RunBusy:      # the local page took the mouse in between
@@ -759,6 +791,7 @@ class App:
         self.guide_entry.delete(0, "end")
         if self.run and not self.run.stopped:
             self.run.guide(text)
+            self._record("guidance", text)
             self._add_card(T(self.lang, "your_guidance"), text, color=OK, accent=OK)
             self._log(f"🗨 {text}")
         else:
@@ -768,8 +801,161 @@ class App:
     def _overlay_message(self, text):
         if self.run and not self.run.stopped:
             self.run.guide(text)
+            self._record("banner", text)
             self._add_card("Message depuis le bandeau", text, color=OK, accent=OK)
             self._log(f"Bandeau : {text}")
+
+    def _record(self, kind, text, step=0):
+        """Append one text event to the agent session being recorded."""
+        if self._run_events is not None:
+            self._run_events.append({"kind": kind, "step": step, "text": str(text)[:4000]})
+
+    def _save_run_session(self, outcome):
+        """Persist the recorded run; a save failure must never break the UI."""
+        if self._run_session is None:
+            return
+        try:
+            self._run_session["outcome"] = outcome
+            self._run_session["events"] = self._run_events or []
+            sessions.save_session(self._run_session)
+        except (OSError, ValueError):
+            pass
+        self._run_session = None
+        self._run_events = None
+
+    # ------------------------------------------------------------ history
+    def _open_history(self):
+        win = tk.Toplevel(self.root)
+        win.title(self._("history_title"))
+        win.geometry("960x600")
+        win.minsize(700, 420)
+        win.transient(self.root)
+        apply_dark_theme(win)
+        win.columnconfigure(1, weight=1)
+        win.rowconfigure(0, weight=1)
+
+        side = ttk.Frame(win, width=340, padding=(10, 10))
+        side.grid(row=0, column=0, sticky="ns")
+        side.grid_propagate(False)
+        ttk.Label(side, text=self._("history_title"), font=("Segoe UI", 12, "bold"),
+                  foreground=TXT).pack(anchor="w", pady=(0, 8))
+        lst = tk.Listbox(side, background=CARD, foreground=TXT, selectbackground=ACC,
+                         selectforeground="white", relief="flat", highlightthickness=1,
+                         highlightbackground=LINE, font=("Segoe UI", 9), activestyle="none")
+        lst.pack(fill="both", expand=True)
+
+        view = tk.Text(win, wrap="word", state="disabled", font=("Segoe UI", 10),
+                       background=FIELD, foreground=TXT, padx=14, pady=12,
+                       insertbackground=TXT, relief="flat", spacing3=6)
+        view.grid(row=0, column=1, sticky="nsew")
+
+        self._history_items = sessions.load_all()
+
+        def entry(s):
+            import datetime
+            try:
+                when = datetime.datetime.fromtimestamp(s["started"]).strftime("%d/%m %H:%M")
+            except (OSError, ValueError, OverflowError):
+                when = "?"
+            mark = {"done": "✔", "stopped": "⏹", "error": "✖",
+                    "max_steps": "⚠", "autonomous_limit": "⚠"}.get(s["outcome"], "•")
+            return f"{mark} {when} · {s['goal'][:44]}"
+
+        def refresh(select=None):
+            self._history_items = sessions.load_all()
+            lst.delete(0, "end")
+            for s in self._history_items:
+                lst.insert("end", entry(s))
+            view.config(state="normal")
+            view.delete("1.0", "end")
+            view.config(state="disabled")
+            if not self._history_items:
+                lst.insert("end", self._("history_empty"))
+            elif select is not None and 0 <= select < len(self._history_items):
+                lst.selection_set(select)
+                lst.see(select)
+                show()
+
+        def show(_e=None):
+            idx = lst.curselection()
+            if not idx or not self._history_items:
+                return
+            s = self._history_items[idx[0]]
+            heads = {"goal": "🎯 Objectif", "thought": "💭 Réflexion",
+                     "action": "⚡ Action", "action_error": "✖ Action échouée",
+                     "message": "💬 Réponse", "guidance": "🗨 Ta consigne",
+                     "banner": "🗨 Message du bandeau", "fallback": "🔄 Bascule IA",
+                     "video": "🎬 Clip enregistré", "done": "✔ Terminé",
+                     "error": "✖ Erreur", "note": "ℹ Note"}
+            lines = []
+            for ev in s["events"]:
+                head = heads.get(ev["kind"], ev["kind"])
+                step = f" (étape {ev['step']})" if ev.get("step") and ev["kind"] in ("thought", "action") else ""
+                lines.append(f"{head}{step}\n{ev['text']}")
+            view.config(state="normal")
+            view.delete("1.0", "end")
+            view.insert("1.0", "\n\n".join(lines) if lines else self._("history_empty"))
+            view.see("1.0")
+            view.config(state="disabled")
+
+        def show_in_activity():
+            idx = lst.curselection()
+            if not idx or not self._history_items:
+                return
+            self._render_session(self._history_items[idx[0]])
+            win.destroy()
+
+        def delete():
+            idx = lst.curselection()
+            if not idx or not self._history_items:
+                return
+            sessions.delete(self._history_items[idx[0]]["id"])
+            refresh()
+
+        btns = ttk.Frame(side)
+        btns.pack(fill="x", pady=(8, 0))
+        ttk.Button(btns, text=self._("show_in_activity"), style="Accent.TButton",
+                   command=show_in_activity).pack(side="left", expand=True, fill="x")
+        ttk.Button(btns, text=self._("del"), style="Danger.TButton",
+                   command=delete).pack(side="left", expand=True, fill="x", padx=(6, 0))
+        ttk.Button(side, text=self._("close"), style="TButton",
+                   command=win.destroy).pack(fill="x", pady=(8, 0))
+
+        lst.bind("<<ListboxSelect>>", show)
+        refresh()
+
+    def _render_session(self, session):
+        """Re-render a finished session's events as activity cards."""
+        self.nb.select(self.tab_agent)
+        for w in self.inner.winfo_children():
+            w.destroy()
+        self._thumb_refs.clear()
+        for ev in session.get("events", []):
+            kind, step, text = ev.get("kind", ""), ev.get("step", 0), ev.get("text", "")
+            if kind == "goal":
+                self._add_card(T(self.lang, "card_goal"), text, color="#93c5fd", accent=ACC)
+            elif kind == "thought":
+                self._add_card(f"💭 {step} · {self._('thinking')}", text, color=TXT, accent=ACC)
+            elif kind == "action":
+                self._add_card(f"⚡ {step} · {self._('command')}", text, color=WARN, accent=WARN)
+            elif kind == "action_error":
+                self._add_card(T(self.lang, "action_failed"), text, color=ERR, accent=ERR)
+            elif kind == "message":
+                self._add_card(self._("agent_reply"), text, color=OK, accent=OK)
+            elif kind == "guidance":
+                self._add_card(T(self.lang, "your_guidance"), text, color=OK, accent=OK)
+            elif kind == "banner":
+                self._add_card("Message depuis le bandeau", text, color=OK, accent=OK)
+            elif kind == "fallback":
+                self._add_card("🔄 Bascule IA / Auto-Fallback", text, color=FALLBACKC, accent=FALLBACKC)
+            elif kind == "video":
+                self._add_card("🎬 Clip enregistré", text, color="#38bdf8", accent="#38bdf8")
+            elif kind == "done":
+                self._add_card(T(self.lang, "reached"), text, color=OK, accent=OK)
+            elif kind == "error":
+                self._add_card(T(self.lang, "failed"), text, color=ERR, accent=ERR)
+            elif kind == "note":
+                self._add_card("ℹ Note", text, color=MUT_LIGHT, accent=MUT_LIGHT)
 
     def _emit(self, event, **kw):
         self.q.put({"event": event, **kw})
@@ -788,7 +974,7 @@ class App:
         if self.run is not None and agent.active_run() is None:
             self._finish("⏹")
         try:
-            self.root.after(80, self._pump)
+            self._pump_id = self.root.after(80, self._pump)
         except tk.TclError:
             pass
 
@@ -807,6 +993,7 @@ class App:
         elif ev == "thought":
             if self.overlay:
                 self.overlay.status(f"Étape {msg['step']} · Analyse")
+            self._record("thought", msg["text"], msg["step"])
             self._add_card(f"💭 {msg['step']} · {self._('thinking')}", msg["text"],
                            color=TXT, accent=ACC)
             self._log(f"step {msg['step']}: {msg['text'][:100]}")
@@ -817,6 +1004,7 @@ class App:
             hold = f"  [hold {msg['hold']}s]" if msg.get("hold") else ""
             color = GAMEC if msg.get("game") else WARN
             title = f"⚡ {msg['step']}.{msg.get('sub', 1)} · {self._('command')}"
+            self._record("action", f"{msg['name']}({args}){hold}", msg["step"])
             self._add_card(title, f"{msg['name']}({args}){hold}", color=color, accent=color)
             if self.overlay:
                 self.overlay.status(f"{msg['step']}.{msg.get('sub', 1)} · {msg['name']}")
@@ -828,6 +1016,7 @@ class App:
             self._add_card("Séquence observée", f"{len(msg['frames'])} images sur {msg['seconds']:.1f} secondes",
                            color="#38bdf8", accent="#38bdf8")
         elif ev == "video":
+            self._record("video", msg["path"])
             self._add_card("🎬 Clip enregistré",
                            f"{msg['file']} · {msg['seconds']} s\n{msg['path']}",
                            color="#38bdf8", accent="#38bdf8")
@@ -837,7 +1026,14 @@ class App:
             self.status_lbl.config(text=text, foreground=OK)
             if self.overlay:
                 self.overlay.status(text)
+        elif ev == "agent_message":
+            self._record("message", msg["text"], msg.get("step", 0))
+            self._add_card(self._("agent_reply"), msg["text"], color=OK, accent=OK)
+            if self.overlay:
+                self.overlay.message("IA : " + msg["text"])
+            self._log(f"step {msg.get('step', '')}: {msg['text'][:100]}")
         elif ev == "autonomous_limit":
+            self._record("note", f"Budget autonome terminé après {msg['calls']} appels IA.")
             self._add_card("Budget autonome terminé",
                            f"Arrêt après {msg['calls']} appels IA. Relance si tu veux continuer.",
                            color=WARN, accent=WARN)
@@ -851,19 +1047,24 @@ class App:
             body = f"{from_p} ➔ {to_p}"
             if reason:
                 body += f"\nRaison : {reason[:120]}"
+            self._record("fallback", f"{from_p} ➔ {to_p}")
             self._add_card(title, body, color=FALLBACKC, accent=FALLBACKC)
             self._log(f"🔄 Bascule automatique : {from_p} -> {to_p}")
             self._set_fallback_badge(to_p)
         elif ev == "done":
+            self._record("done", msg["text"])
             self._add_card(T(self.lang, "reached"), msg["text"], color=OK, accent=OK)
             self._log("✔ " + msg["text"])
         elif ev == "error":
+            self._record("error", msg["text"])
             self._add_card(T(self.lang, "failed"), msg["text"], color=ERR, accent=ERR)
             self._log("✖ " + msg["text"])
         elif ev == "action_error":
+            self._record("action_error", msg["text"])
             self._add_card(T(self.lang, "action_failed"), msg["text"], color=ERR, accent=ERR)
         elif ev == "finished":
             outcome = msg.get("outcome", "done")
+            self._save_run_session(outcome)
             if outcome == "done":
                 self._finish("✔")
             elif outcome == "stopped":
@@ -1381,6 +1582,12 @@ class App:
         ttk.Checkbutton(sec2, text=T(lang, "shots_each"), variable=shots_var).grid(
             row=sr, column=0, columnspan=2, sticky="w", pady=2)
         sr += 1
+        ttk.Label(sec2, text="Durée du curseur IA bleu après un clic (secondes)").grid(
+            row=sr, column=0, sticky="w", pady=3)
+        cursor_linger_spin = ttk.Spinbox(sec2, from_=0, to=30, increment=1, width=8)
+        cursor_linger_spin.set(cfg.get("cursor_linger", 5))
+        cursor_linger_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
         chat_eco_var = tk.BooleanVar(value=bool(cfg.get("chat_eco", True)))
         ttk.Checkbutton(sec2, text="Mode éco du Chat (contexte et réponses plus courts)",
                         variable=chat_eco_var).grid(row=sr, column=0, columnspan=2, sticky="w", pady=2)
@@ -1475,6 +1682,7 @@ class App:
                 "step_delay": delay,
                 "screenshot_each_action": bool(shots_var.get()),
                 "free_mouse": bool(free_var.get()),
+                "cursor_linger": cursor_linger_spin.get(),
                 "chat_eco": bool(chat_eco_var.get()),
                 "chat_context_messages": chat_context_spin.get(),
                 "chat_response_tokens": chat_tokens_spin.get(),
@@ -1496,10 +1704,11 @@ class App:
                 return
             old_lang = cfg.get("language", "fr")
             self._refresh_badge()
-            self.game_var.set(new_cfg["game_mode"])
-            self.win_var.set(new_cfg["window_mode"])
-            self.win_selected = new_cfg["window_title"]
-            self._refresh_windows()
+            # Settings and the Agent tab keep the same options in two places: the
+            # dialog used to update only game/window, so toggling "Autonome" (or
+            # eco, cursor, limits) here was silently reverted by the tab's stale
+            # checkbox on the next run — the exact "mode autonome cassé" bug.
+            self._apply_cfg_to_controls(new_cfg)
             if new_cfg.get("language") != old_lang:
                 info_lbl.config(text=T(new_cfg.get("language", "fr"), "saved_restart"))
                 self.restart_requested = True
@@ -1577,6 +1786,15 @@ class App:
 
     def _on_close(self):
         self._persist_chat()
+        if self._pump_id is not None:
+            try:
+                self.root.after_cancel(self._pump_id)
+                self._pump_id = None
+            except tk.TclError:
+                pass
+        # the run thread dies with the process: keep what was recorded so far
+        if self._run_session is not None and self._run_events:
+            self._save_run_session("stopped")
         owned = agent.active_run() or self.run
         if owned:
             if not owned.stopped and not messagebox.askyesno(T(self.lang, "app"), T(self.lang, "still_running")):

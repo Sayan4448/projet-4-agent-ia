@@ -8,7 +8,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows_10%2F11-x64-8b5cf6)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
-![Version](https://img.shields.io/badge/version-1.9.0-a78bfa)
+![Version](https://img.shields.io/badge/version-1.9.1-a78bfa)
 
 [Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md)
 
@@ -30,7 +30,7 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 |---|---|
 | **Bureau Windows** | Ouvrir des applications, cliquer, écrire, utiliser le clavier et PowerShell. |
 | **Navigateur uniquement** | Piloter une session Edge/Chrome dédiée, sans injection de souris/clavier sur le bureau. |
-| **Curseur virtuel** | Flèche violette, halo animé, aperçu avant clic, indicateur d’activité flottant. |
+| **Curseur virtuel** | Flèche bleue qui reste à l’endroit du clic (5 s par défaut, réglable), halo animé, indicateur d’activité flottant. |
 | **Actions par capture** | Limite de **1 à 12** actions (défaut : 3) ; limite désactivée = 6 maximum. |
 | **Mode éco** | Images limitées à 960 px, JPEG 60, historique réduit, captures intermédiaires désactivées. |
 | **IA cloud** | Six fournisseurs ; rotation des clés et bascule vers un autre fournisseur cloud configuré en cas d’échec. |
@@ -40,10 +40,12 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 | **Montage vidéo** | Profil pour Premiere Pro, CapCut et DaVinci Resolve, avec raccourcis et vérification visuelle. |
 | **Mouvement & audio** | Séquence de 1–6 s (4 images max), enregistrement vidéo MP4 (1–30 s) et analyse d’un fichier audio explicitement indiqué. |
 | **Agent autonome** | Bandeau interactif, messages en direct, veille locale et budget IA strict. |
+| **Historique Agent** | Chaque run est enregistré (objectif, pensées, actions, réponses) et relisible via 🗂 Historique. |
+| **Tâches complètes** | Vérification de la fenêtre principale, fermeture des pubs/popups et attente de chargement (15 s). |
 
 ## Installation rapide
 
-1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.0.msi`.
+1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.1.msi`.
 2. Lancer le MSI puis ouvrir **Projet 4, agent IA** depuis le Bureau ou le menu Démarrer.
 3. Dans **Paramètres**, choisir un fournisseur, charger les modèles, sélectionner un
    modèle puis **Tester la connexion**. Pour les captures, il faut un modèle avec vision.

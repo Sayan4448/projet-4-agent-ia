@@ -24,6 +24,7 @@ nécessaire pour lancer l’interface native.
 | `agent_screen/__main__.py` | Lancement par `python -m agent_screen` |
 | `agent_screen/gui.py` | Interface native, événements, paramètres et Chat |
 | `agent_screen/conversations.py` | Discussions locales, favoris et écriture atomique |
+| `agent_screen/sessions.py` | Historique local des sessions du mode Agent |
 | `agent_screen/media.py` | Captures temporelles bornées, enregistrement vidéo MP4 et analyse audio explicite |
 | `agent_screen/overlay.py` | Curseur transparent aux clics et bandeau d’activité |
 | `agent_screen/agent.py` | Boucle IA, vocabulaire d’actions, Stop, lots et historique |
@@ -94,7 +95,7 @@ Windows ; le lancement de l’EXE ne nécessite pas l’environnement de compila
 
 1. Mettre à jour `agent_screen/__init__.py`, `installer/AgentScreen.wxs` et `CHANGELOG.md`.
 2. Exécuter les tests et le build, vérifier les fichiers et la somme SHA-256.
-3. Créer/pousser un tag correspondant à la version, par exemple `v1.9.0`.
+3. Créer/pousser un tag correspondant à la version, par exemple `v1.9.1`.
 4. Le workflow Release reconstruit les binaires et les joint à la Release GitHub.
    Publication manuelle possible avec `gh release create` et les trois artefacts.
 

@@ -160,6 +160,26 @@ class TestReliabilityFixes(unittest.TestCase):
         self.assertIn("Brave", text)
         self.assertIn("focus_window", text)
         self.assertIn("focus_window", agent.SYSTEM_PROMPT)
+        # clicking the middle of a row instead of its text label: the user
+        # reported clicks landing on the label / between two rows
+        self.assertIn("MIDDLE of the ROW", agent.SYSTEM_PROMPT)
+
+    def test_grid_labels_every_hundred_pixels_for_click_precision(self):
+        """Labels every 200px made the model interpolate over half a row: a click
+        aimed at a contact's name landed off the row. Labels now come every 100px."""
+        from PIL import Image, ImageDraw
+        drawn = []
+        real_text = ImageDraw.ImageDraw.text
+
+        def spy(self, xy, text, *a, **k):
+            drawn.append(int(xy[0]))
+            return real_text(self, xy, text, *a, **k)
+
+        img = Image.new("RGB", (1280, 720), (255, 255, 255))
+        with patch.object(ImageDraw.ImageDraw, "text", spy):
+            display._draw_grid(img, 1280, 720, 1.0)
+        self.assertIn(102, drawn)    # label at x=100 (drawn at px+2)
+        self.assertIn(202, drawn)    # label at x=200
 
     def test_summarize_reports_failure_to_the_model(self):
         self.assertIn("FAILED", agent._summarize(
@@ -293,6 +313,18 @@ class TestReliabilityFixes(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(title, "Brave")
         self.assertTrue(verified)
+
+    def test_start_menu_never_counts_as_the_app_opening(self):
+        """The start-menu-search fallback opens the Start menu itself; counting
+        its window as 'the app appeared' stopped the agent before the app was
+        really open (the exact 'ouvre CapCut' bug)."""
+        fake = [{"title": "Démarrer", "w": 500, "h": 600, "hwnd": 9}]
+        with patch("agent_screen.display.list_windows", return_value=fake), \
+                patch("agent_screen.display.window_exe", return_value="explorer.exe"):
+            ok, title, verified = apps._wait_for_window(set(), ("capcut",),
+                                                        ("CapCut.exe",), 0.6)
+        self.assertFalse(ok)
+        self.assertEqual(title, "")
 
     def test_open_app_cannot_inject_a_shell_command(self):
         """The old code did f"Start-Process '{name}'"; names are data now."""

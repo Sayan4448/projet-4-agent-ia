@@ -10,10 +10,31 @@
 
 Un exemple sélectionné dans la liste démarre la tâche immédiatement.
 
+Après un lancement d’application, l’agent va au bout de la tâche : il attend la
+fenêtre principale (jusqu’à 15 secondes pour les logiciels lourds), ferme les
+fenêtres bloquantes — publicité, écran d’accueil, connexion, mise à jour — puis
+vérifie à l’écran avant de déclarer l’objectif terminé. Le menu Démarrer ne
+compte jamais comme « application ouverte ».
+
+## Historique des sessions de l’agent
+
+Le bouton **🗂 Historique** (barre supérieure) ouvre la liste des sessions du mode
+Agent. Chaque run y est enregistré automatiquement : objectif, pensées, actions,
+réponses, consignes, clips vidéo et résultat. Un clic affiche le déroulé complet ;
+**Afficher dans l’activité** le rejoue sous forme de cartes dans le panneau
+d’activité, et **Supprimer** le retire. Les captures d’écran ne sont pas
+conservées : l’historique reste léger et privé (`data/agent_sessions.json`).
+
+Les discussions du mode Chat restent dans l’onglet Chat ; celles du mode Agent
+sont ici.
+
 ## Curseur virtuel et bandeau
 
-**Curseur IA visible** affiche une flèche violette avant les mouvements/clics de l’agent,
-et un halo animé pour les clics. C’est une visualisation, pas une seconde souris physique.
+**Curseur IA visible** affiche une flèche **bleue** avant les mouvements/clics de l’agent,
+et un halo animé pour les clics. Après un clic, le marqueur bleu reste affiché à l’endroit
+exact du clic pendant **5 secondes** par défaut ; la durée se règle de 0 à 30 s dans
+Paramètres (« Durée du curseur IA bleu après un clic »). C’est une visualisation, pas une
+seconde souris physique.
 En mode Bureau, Windows possède toujours un seul pointeur réel.
 
 L’overlay est transparent aux clics et ne prend pas le focus. Il est exclu des captures
@@ -68,7 +89,8 @@ en arrière-plan, sans exécuter sa réponse. Les navigations/commandes en cours
 Activer **Autonome** dans l’espace de travail puis démarrer un objectif, par exemple
 « Occupe-toi de mon PC et traite les messages affichés ». Le bandeau contient un champ
 pour parler à l’agent pendant son exécution. Les messages deviennent des consignes pour
-la prochaine décision et réveillent la veille locale.
+la prochaine décision et réveillent la veille locale. Les réponses de l’agent
+s’affichent dans le bandeau et dans le panneau d’activité.
 
 Ce mode n’est pas illimité : par défaut 60 minutes, 20 appels IA et au moins 30 secondes
 entre deux appels automatiques. En l’absence de message, l’app compare localement de

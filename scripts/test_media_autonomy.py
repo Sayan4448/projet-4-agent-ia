@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from PIL import Image
-from agent_screen import agent, apps, conversations, display, gui, media, settings
+from agent_screen import agent, apps, conversations, display, gui, media, sessions, settings
 from agent_screen.overlay import AgentOverlay
 
 
@@ -71,16 +71,20 @@ class MediaAutonomyTests(unittest.TestCase):
         self.assertEqual([p["inline_data"]["data"] for p in parts[:-1]], ["first", "second"])
 
     def test_autonomous_wait_is_local_until_change(self):
+        """The watch uses a cheap screen sample and takes a full model capture
+        only when it wakes — never one screenshot every three seconds."""
         run = agent.AgentRun("goal", "gemini", autonomous_mode=True,
                              autonomous_min_interval=15, autonomous_minutes=5)
         run._started_at = time.monotonic()
-        shots = iter([image(0), image(255)])
         run.autonomous_min_interval = 0
-        with patch.object(run, "_shot", side_effect=lambda: next(shots)), \
+        with patch.object(run, "_shot", return_value=image(255)) as shot, \
+             patch.object(display, "screen_fingerprint",
+                          side_effect=[tuple([0] * 144), tuple([255] * 144)]), \
              patch.object(run._stop, "wait", return_value=False):
             latest, changed = run._autonomous_wait(image(0))
         self.assertTrue(changed)
         self.assertEqual(latest, image(255))
+        self.assertEqual(shot.call_count, 1)
 
     def test_autonomous_budget_prevents_extra_ai_calls(self):
         run = agent.AgentRun("goal", "gemini", max_steps=40, autonomous_mode=True,
@@ -92,6 +96,7 @@ class MediaAutonomyTests(unittest.TestCase):
         colors = iter(range(0, 255, 20))
         with patch.object(display, "capture_for_model", side_effect=lambda **kw: (image(next(colors)), 1.0)), \
              patch.object(display, "interesting_windows", return_value=[]), \
+             patch.object(display, "screen_fingerprint", return_value=tuple([255] * 144)), \
              patch.object(agent, "chat_with_fallback", side_effect=replies) as chat, \
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(run._stop, "wait", return_value=False):
@@ -104,6 +109,56 @@ class MediaAutonomyTests(unittest.TestCase):
         run = agent.AgentRun("goal", "gemini", max_steps=20, autonomous_mode=True,
                              autonomous_max_calls=20)
         self.assertEqual(min(run.max_steps, run.autonomous_max_calls), 20)
+
+    def test_settings_dialog_syncs_the_autonomous_toggle(self):
+        """Toggling 'Autonome' in Settings used to be reverted by the Agent tab's
+        stale checkbox — the mode looked broken because it never stayed on."""
+        root = tk.Tk(); root.withdraw()
+        with patch.object(display, "interesting_windows", return_value=[]):
+            app = gui.App(root)
+        try:
+            cfg = {**app.cfg, "autonomous_mode": True, "execution_mode": "browser",
+                   "eco_mode": True, "agent_profile": "video_editing",
+                   "virtual_cursor": False, "limit_actions_per_capture": False,
+                   "actions_per_capture": 7, "game_mode": True, "window_mode": True,
+                   "window_title": "X"}
+            with patch.object(display, "interesting_windows", return_value=[]):
+                app._apply_cfg_to_controls(cfg)
+            self.assertTrue(app.autonomous_var.get())
+            self.assertEqual(app.mode_var.get(), "browser")
+            self.assertTrue(app.eco_var.get())
+            self.assertEqual(app.profile_var.get(), "video_editing")
+            self.assertFalse(app.cursor_var.get())
+            self.assertFalse(app.limit_var.get())
+            self.assertEqual(int(app.action_count.get()), 7)
+            app._save_run_options()          # the tab must not revert Settings
+            self.assertTrue(settings.load()["autonomous_mode"])
+        finally:
+            root.destroy()
+
+    def test_scroll_can_target_coordinates(self):
+        """The mouse is parked between steps, so mouse_scroll must accept x,y —
+        it used to scroll wherever the parked cursor happened to be."""
+        with patch.object(agent.input_control, "mouse_scroll") as scroll:
+            agent.execute_action("mouse_scroll", {"amount": 5, "x": 100, "y": 200})
+        scroll.assert_called_once_with(5, 200, 100)
+
+    def test_parked_mouse_avoids_the_show_desktop_corner(self):
+        """The exact bottom-right pixel is Windows' 'Show desktop' button: parking
+        there triggered Aero Peek and corrupted the next screenshot."""
+        run = agent.AgentRun("goal", "gemini", max_steps=1, step_delay=0)
+        answer = json.dumps({"actions": [{"name": "press_key", "args": {"key": "tab"}}]})
+        with patch.object(display, "capture_for_model", return_value=(image(0), 1.0)), \
+             patch.object(display, "interesting_windows", return_value=[]), \
+             patch.object(display, "screen_info",
+                          return_value={"primary": {"width_px": 1920, "height_px": 1080}}), \
+             patch.object(agent, "chat_with_fallback", return_value=(answer, "gemini")), \
+             patch.object(agent, "execute_action", return_value={"ok": True}), \
+             patch.object(agent.input_control, "mouse_move") as move:
+            run.run()
+        move.assert_called()
+        _x, y = move.call_args.args
+        self.assertLessEqual(y, 1080 - 60)   # above the taskbar, not the corner
 
     def test_agent_decision_tokens_are_bounded(self):
         for eco, expected in ((True, 900), (False, 1600)):
@@ -141,6 +196,67 @@ class MediaAutonomyTests(unittest.TestCase):
             self.assertIn("Réponds", overlay.reply.cget("text"))
         finally:
             overlay.destroy(); root.destroy()
+
+    def test_blue_click_marker_lingers_and_is_configurable(self):
+        from agent_screen import overlay as overlay_module
+        self.assertNotEqual(overlay_module.CURSOR_COLOR, overlay_module.PURPLE)
+        self.assertEqual(settings.save({"cursor_linger": 99})["cursor_linger"], 30)
+        self.assertEqual(settings.save({"cursor_linger": 3})["cursor_linger"], 3)
+        self.assertEqual(settings.save({"cursor_linger": -4})["cursor_linger"], 0)
+        root = tk.Tk(); root.withdraw()
+        overlay = AgentOverlay(root, lambda: None, linger=5)
+        try:
+            self.assertEqual(overlay.linger, 5.0)
+            with patch.object(overlay.root, "after") as after:   # click -> linger
+                overlay._frame(12, True)
+            after.assert_called_with(5000, overlay.cursor.withdraw)
+            with patch.object(overlay.root, "after") as after:   # move -> quick hide
+                overlay._frame(12, False)
+            after.assert_called_with(350, overlay.cursor.withdraw)
+        finally:
+            overlay.destroy(); root.destroy()
+
+    def test_launch_must_be_verified_before_done(self):
+        """'Ouvre CapCut' used to finish right after opening the Start menu or a
+        splash screen: a launch now forces one verification step before done."""
+        run = agent.AgentRun("ouvre capcut", "gemini", max_steps=6, step_delay=0)
+        events = []
+        run.emit = lambda event, **kw: events.append((event, kw))
+        replies = [
+            (json.dumps({"actions": [{"name": "open_app", "args": {"name": "capcut"}}]}), "gemini"),
+            (json.dumps({"done": True, "summary": "CapCut est ouvert."}), "gemini"),
+            (json.dumps({"actions": [{"name": "press_key", "args": {"key": "esc"}}]}), "gemini"),
+            (json.dumps({"done": True, "summary": "CapCut prêt, pub fermée."}), "gemini"),
+        ]
+        colors = iter(range(0, 255, 5))
+        with patch.object(display, "capture_for_model",
+                          side_effect=lambda **kw: (image(next(colors)), 1.0)), \
+             patch.object(display, "interesting_windows", return_value=[]), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies) as chat, \
+             patch.object(agent, "execute_action", return_value={"ok": True}):
+            result = run.run()
+        self.assertEqual(result["outcome"], "done")
+        self.assertEqual(chat.call_count, 4)   # the early done was refused
+        self.assertTrue(any(e[0] == "thought" and "rification" in e[1].get("text", "")
+                            for e in events))
+
+    def test_agent_history_window_lists_sessions(self):
+        with patch.object(sessions, "sessions_file",
+                          return_value=Path(self.tmp.name) / "agent_sessions.json"):
+            sessions.save_session({**sessions.new_session("Ouvre CapCut", "Montage"),
+                                   "outcome": "done",
+                                   "events": [{"kind": "goal", "step": 0, "text": "Ouvre CapCut"},
+                                              {"kind": "done", "step": 1, "text": "CapCut prêt."}]})
+            root = tk.Tk(); root.withdraw()
+            app = gui.App(root)
+            try:
+                app._open_history()
+                tops = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+                self.assertTrue(tops, "la fenêtre Historique doit s'ouvrir")
+                for w in tops:
+                    w.destroy()
+            finally:
+                root.destroy()
 
     def test_record_video_writes_a_real_mp4(self):
         if not media._ffmpeg_exe():
@@ -188,6 +304,7 @@ class MediaAutonomyTests(unittest.TestCase):
         colors = iter(range(0, 255, 20))
         with patch.object(display, "capture_for_model", side_effect=lambda **kw: (image(next(colors)), 1.0)), \
              patch.object(display, "interesting_windows", return_value=[]), \
+             patch.object(display, "screen_fingerprint", return_value=tuple([255] * 144)), \
              patch.object(agent, "chat_with_fallback", side_effect=replies), \
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(run._stop, "wait", return_value=False):

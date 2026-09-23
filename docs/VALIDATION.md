@@ -1,4 +1,4 @@
-# Validation de la version 1.9.0
+# Validation de la version 1.9.1
 
 Vérifications réalisées sur Windows le 21 septembre 2026.
 

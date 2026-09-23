@@ -71,6 +71,8 @@ if _SYSTEM == "Windows":
 # ------------------------------------------------------------- win32 consts
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 PW_RENDERFULLCONTENT = 0x00000002  # captured DWM content (incl. hardware-accelerated apps)
+SHOT_CLEAN_EVERY = 30              # clean data/shots only once every N captures
+_SHOT_TICK = {"n": 0}
 
 
 def screen_info() -> dict:
@@ -165,6 +167,10 @@ _NOISE = (
     "windows shell", "dwm", "overlay", "msctfime", "default ime",
     "agent screen", "agentcursor", "windows push notifications",
     "notification", "snipping tool overlay", "task host", "search",
+    # the Start menu itself is never the app the user asked to open: without
+    # this, the start-menu-search fallback counted its own window as "the app
+    # appeared" and the agent stopped before the app was really open
+    "menu demarrer", "start menu", "demarrer",
 )
 
 
@@ -392,6 +398,27 @@ def capture_frame():
     return _capture_screen().convert("RGB")
 
 
+def screen_fingerprint(window_title: str | None = None, size=(16, 9)) -> tuple:
+    """Tiny grayscale sample of the screen (or one window) for local comparison.
+
+    Never encoded, never saved: the autonomous watch loop calls this every few
+    seconds for up to an hour, so it must stay cheap and leave no files behind.
+    """
+    img = None
+    if window_title:
+        found = find_window(window_title)
+        if found:
+            try:
+                img = _capture_hwnd(found[0], found[1])
+            except Exception:  # noqa: BLE001 - fall back to the whole screen
+                img = None
+    if img is None:
+        img = _capture_screen()
+    small = img.convert("L").resize(size, Image.BILINEAR)
+    pixels = getattr(small, "get_flattened_data", small.getdata)
+    return tuple(pixels())
+
+
 def take_screenshot(grid: bool = False, max_width: int = 0,
                     window_title: str | None = None,
                     jpeg_quality: int = 0) -> str:
@@ -455,7 +482,9 @@ def capture_for_model(grid: bool = False, max_width: int = 0,
     shrink = 1.0
     if max_width and max_width < real_w:
         shrink = max_width / real_w
-        img = img.resize((max_width, max(1, int(real_h * shrink))), Image.LANCZOS)
+        # BILINEAR instead of LANCZOS: a screenshot does not need the sharpest
+        # resampler, and this halves the resize cost (~28ms -> ~14ms at 1920px)
+        img = img.resize((max_width, max(1, int(real_h * shrink))), Image.BILINEAR)
 
     if grid:
         # Labels and action arguments use ONE space: pixels of the sent image.
@@ -464,23 +493,29 @@ def capture_for_model(grid: bool = False, max_width: int = 0,
     buf = io.BytesIO()
     ext = "png"
     if jpeg_quality and jpeg_quality > 0:
-        img.convert("RGB").save(buf, format="JPEG", quality=int(jpeg_quality),
-                                optimize=True)
+        # no optimize=: it only shaves bytes off an image the model reads once,
+        # at the cost of CPU on every capture
+        img.convert("RGB").save(buf, format="JPEG", quality=int(jpeg_quality))
         ext = "jpg"
     else:
-        img.convert("RGB").save(buf, format="PNG", optimize=True)
+        img.convert("RGB").save(buf, format="PNG", compress_level=1)
     data = buf.getvalue()
 
+    # Copying every shot to disk must not slow the loop down: the file write is
+    # cheap, but glob+stat over the whole folder is not, so housekeeping runs
+    # only once every SHOT_CLEAN_EVERY captures.
     try:
         from datetime import datetime
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         (shots_dir() / f"shot_{stamp}.{ext}").write_bytes(data)
-        saved = sorted(shots_dir().glob("shot_*"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for old in saved[120:]:
-            try:
-                old.unlink()
-            except OSError:
-                pass
+        _SHOT_TICK["n"] += 1
+        if _SHOT_TICK["n"] % SHOT_CLEAN_EVERY == 0:
+            saved = sorted(shots_dir().glob("shot_*"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for old in saved[120:]:
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
     except OSError:
         pass
 
@@ -513,14 +548,14 @@ def _draw_grid(img, real_w: int, real_h: int, scale: float):
 
     for x in range(0, real_w, step):
         px = int(x * s)
-        if x % 200 == 0 and (not small or x % 400 == 0):
+        if x % 100 == 0 and (not small or x % 200 == 0):
             d.text((px + 2, 2), str(x), fill=(255, 210, 80, 230))
             d.text((px + 2, img.height - fs - 3), str(x), fill=(255, 210, 80, 230))
         else:
             d.line([(px, 0), (px, 4 * s or 3)], fill=(255, 210, 80, 200), width=1)
     for y in range(0, real_h, step):
         py = int(y * s)
-        if y % 200 == 0 and (not small or y % 400 == 0):
+        if y % 100 == 0 and (not small or y % 200 == 0):
             d.text((2, py + 2), str(y), fill=(255, 210, 80, 230))
             d.text((img.width - fs * 3 - 2, py + 2), str(y), fill=(255, 210, 80, 230))
         else:

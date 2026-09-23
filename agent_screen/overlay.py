@@ -4,6 +4,9 @@ import os
 import tkinter as tk
 
 PURPLE = "#a78bfa"
+BLUE = "#3b82f6"          # the AI cursor is blue, so the user can tell it apart
+BLUE_HALO = "#93c5fd"
+CURSOR_COLOR = BLUE
 KEY = "#010203"
 
 
@@ -31,9 +34,14 @@ def _native(window, click_through=False):
 
 
 class AgentOverlay:
-    def __init__(self, root, stop, send_message=None):
+    def __init__(self, root, stop, send_message=None, linger=5.0):
         self.root = root
         self.send_message = send_message
+        # how long the blue marker stays at the click point before fading out
+        try:
+            self.linger = max(0.0, min(60.0, float(linger)))
+        except (TypeError, ValueError):
+            self.linger = 5.0
         self.timer = None
         self.cursor = tk.Toplevel(root)
         self.cursor.withdraw()
@@ -108,13 +116,17 @@ class AgentOverlay:
         c = self.canvas
         c.delete("all")
         radius = 12 + frame * 2 if click else 20
-        color = "#c4b5fd" if click else PURPLE
+        color = BLUE_HALO if click else BLUE
         c.create_oval(45-radius, 45-radius, 45+radius, 45+radius, outline=color, width=3)
         c.create_polygon(45, 45, 45, 75, 53, 68, 61, 82, 68, 78, 60, 65, 72, 64,
-                         fill=PURPLE, outline="white", width=2)
+                         fill=BLUE, outline="white", width=2)
         c.create_text(78, 94, text="IA", fill="white", font=("Segoe UI", 9, "bold"))
         if frame < 12:
             self.timer = self.root.after(45, lambda: self._frame(frame + 1, click))
+        elif click:
+            # a click marker stays where the AI clicked, long enough to see it
+            self.timer = self.root.after(max(0, int(self.linger * 1000)),
+                                         self.cursor.withdraw)
         else:
             self.timer = self.root.after(350, self.cursor.withdraw)
 

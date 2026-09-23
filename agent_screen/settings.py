@@ -11,7 +11,7 @@ PROVIDERS = ["gemini", "openai", "anthropic", "groq", "deepseek", "openrouter", 
 
 def _default_models() -> dict:
     return {
-        "gemini": "gemini-3.5-flash-lite",
+        "gemini": "gemini-3.5-flash",
         "openai": "gpt-4.1-mini",
         "anthropic": "claude-sonnet-4-5",
         "groq": "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -40,6 +40,7 @@ DEFAULTS = {
     "execution_mode": "desktop",
     "eco_mode": False,
     "virtual_cursor": True,
+    "cursor_linger": 5,         # seconds the blue click marker stays on screen
     "limit_actions_per_capture": True,
     "actions_per_capture": 3,
     "local_urls": {"ollama": "http://127.0.0.1:11434", "lmstudio": "http://127.0.0.1:1234/v1"},
@@ -73,7 +74,8 @@ def _merge_modes(cfg, source):
                                     ("chat_response_tokens", 700, 128, 4096),
                                     ("autonomous_minutes", 60, 5, 240),
                                     ("autonomous_max_calls", 20, 2, 80),
-                                    ("autonomous_min_interval", 30, 15, 300)):
+                                    ("autonomous_min_interval", 30, 15, 300),
+                                    ("cursor_linger", 5, 0, 30)):
         if key in source:
             try:
                 cfg[key] = max(low, min(high, int(source[key])))

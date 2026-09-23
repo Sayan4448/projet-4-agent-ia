@@ -367,12 +367,16 @@ def _wait_for_window(before, patterns, exes, wait: float):
     return False, "", False
 
 
-def launch_app(name: str, wait: float = 8.0, keyboard_fallback=None) -> dict:
+def launch_app(name: str, wait: float = 15.0, keyboard_fallback=None) -> dict:
     """Launch (or focus) an app and VERIFY that it really came up.
 
     `keyboard_fallback(name)` is an optional callable used only as a last
     resort (typing the name in the Start menu); it is provided by
     input_control so this module stays free of pyautogui.
+
+    Heavy apps (video editors, browsers) can take ten seconds or more to show
+    a window: the wait is generous on purpose, and the polling returns as soon
+    as a real window is seen.
     """
     raw = str(name or "").strip()
     if not raw:
