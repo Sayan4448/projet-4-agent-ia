@@ -524,41 +524,33 @@ def capture_for_model(grid: bool = False, max_width: int = 0,
     result = (base64.b64encode(data).decode("ascii"), real_w / img.width)
     if with_geometry:
         return (*result, {"origin": origin, "scale_y": real_h / img.height,
-                          "width": img.width, "height": img.height})
+                          "width": img.width, "height": img.height,
+                          "real_w": real_w, "real_h": real_h})
     return result
 
 
 def _draw_grid(img, real_w: int, real_h: int, scale: float):
-    """Labeled grid every 100 real px (crosses + labels in real coordinates)."""
+    """Grid labeled in NORMALIZED 0-1000 coordinates — the convention vision
+    models (Gemini especially) are trained to emit. Lines every 50 units,
+    labels every 100, both axes."""
     from PIL import ImageDraw
 
     d = ImageDraw.Draw(img, "RGBA")
-    step = 100
-    s = scale if scale else 1.0
-    fs = max(9, int(12 * s))
-    small = img.width < 700
-    if small:
-        fs = 8
+    w, h = img.width, img.height
+    small = w < 700
+    fs = 8 if small else max(9, int(12 * (scale or 1.0)))
+    step = 100 if small else 50
 
-    for x in range(0, real_w, step):
-        px = int(x * s)
-        d.line([(px, 0), (px, img.height)], fill=(255, 80, 80, 45), width=1)
-    for y in range(0, real_h, step):
-        py = int(y * s)
-        d.line([(0, py), (img.width, py)], fill=(255, 80, 80, 45), width=1)
-
-    for x in range(0, real_w, step):
-        px = int(x * s)
-        if x % 100 == 0 and (not small or x % 200 == 0):
-            d.text((px + 2, 2), str(x), fill=(255, 210, 80, 230))
-            d.text((px + 2, img.height - fs - 3), str(x), fill=(255, 210, 80, 230))
-        else:
-            d.line([(px, 0), (px, 4 * s or 3)], fill=(255, 210, 80, 200), width=1)
-    for y in range(0, real_h, step):
-        py = int(y * s)
-        if y % 100 == 0 and (not small or y % 200 == 0):
-            d.text((2, py + 2), str(y), fill=(255, 210, 80, 230))
-            d.text((img.width - fs * 3 - 2, py + 2), str(y), fill=(255, 210, 80, 230))
-        else:
-            d.line([(0, py), (4 * s or 3, py)], fill=(255, 210, 80, 200), width=1)
+    for n in range(0, 1001, step):
+        px = round(n * w / 1000)
+        d.line([(px, 0), (px, h)], fill=(255, 80, 80, 45), width=1)
+        if n % 100 == 0:
+            d.text((min(px + 2, w - fs * 3 - 2), 2), str(n), fill=(255, 210, 80, 230))
+            d.text((min(px + 2, w - fs * 3 - 2), h - fs - 3), str(n), fill=(255, 210, 80, 230))
+    for n in range(0, 1001, step):
+        py = round(n * h / 1000)
+        d.line([(0, py), (w, py)], fill=(255, 80, 80, 45), width=1)
+        if n % 100 == 0:
+            d.text((2, min(py + 2, h - fs - 3)), str(n), fill=(255, 210, 80, 230))
+            d.text((w - fs * 3 - 2, min(py + 2, h - fs - 3)), str(n), fill=(255, 210, 80, 230))
     return img

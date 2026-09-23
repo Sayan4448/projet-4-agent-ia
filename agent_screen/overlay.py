@@ -10,7 +10,7 @@ CURSOR_COLOR = BLUE
 KEY = "#010203"
 
 
-def _native(window, click_through=False):
+def _native(window, click_through=False, activatable=False):
     if os.name != "nt":
         return
     window.update_idletasks()
@@ -23,7 +23,9 @@ def _native(window, click_through=False):
     get.restype = ctypes.c_ssize_t
     put.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_ssize_t]
     put.restype = ctypes.c_ssize_t
-    style = get(hwnd, -20) | 0x08000000 | 0x00000080  # NOACTIVATE | TOOLWINDOW
+    style = get(hwnd, -20) | 0x00000080  # TOOLWINDOW (not in Alt-Tab)
+    if not activatable:
+        style |= 0x08000000              # NOACTIVATE: never steals focus
     if click_through:
         style |= 0x00000020 | 0x00080000
     put(hwnd, -20, style)
@@ -56,57 +58,111 @@ class AgentOverlay:
         self.canvas = tk.Canvas(self.cursor, width=110, height=110, bg=KEY, highlightthickness=0)
         self.canvas.pack()
         _native(self.cursor, True)
+        # ---- bottom-right activity panel (Neural-Agents style) ----
+        # journal of what the agent does + latest screenshot + a chat box.
+        # activatable=True: the user CAN focus the entry to talk to the agent
+        # (agent clicks on our own windows are refused by input_control anyway).
         self.hud = tk.Toplevel(root)
         self.hud.withdraw()
         self.hud.title("Agent Screen Activity")
         self.hud.overrideredirect(True)
         self.hud.attributes("-topmost", True)
-        self.hud.configure(bg="#211a36", highlightbackground=PURPLE, highlightthickness=1)
-        top = tk.Frame(self.hud, bg="#211a36")
+        self.hud.configure(bg="#17121f", highlightbackground=PURPLE, highlightthickness=1)
+        top = tk.Frame(self.hud, bg="#17121f")
         top.pack(fill="x")
-        self.label = tk.Label(top, bg="#211a36", fg="#ede9fe", font=("Segoe UI", 10, "bold"),
-                              text="●  AGENT ACTIF", padx=16, pady=10)
+        self.label = tk.Label(top, bg="#17121f", fg="#ede9fe", font=("Segoe UI", 10, "bold"),
+                              text="●  AGENT ACTIF", padx=12, pady=7)
         self.label.pack(side="left")
         tk.Button(top, text="■ Stop", command=stop, bg="#4c2549", fg="white",
-                  relief="flat", padx=12, pady=7).pack(side="right", padx=8, pady=5)
-        self.reply = tk.Label(self.hud, bg="#211a36", fg="#b8aaca", text="",
-                              wraplength=420, justify="left", anchor="w", padx=12)
+                  relief="flat", padx=10, pady=5).pack(side="right", padx=8, pady=4)
+        body = tk.Frame(self.hud, bg="#17121f")
+        body.pack(fill="both", expand=True, padx=8)
+        self.thumb = tk.Label(body, bg="#0d0a14", width=168, height=96)
+        self.thumb.pack(side="left", anchor="n", pady=4)
+        self.log_txt = tk.Text(body, bg="#0d0a14", fg="#c9bfe0", relief="flat",
+                               font=("Consolas", 8), width=22, height=9,
+                               state="disabled", wrap="word")
+        self.log_txt.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=4)
+        self.reply = tk.Label(self.hud, bg="#17121f", fg="#b8aaca", text="",
+                              wraplength=340, justify="left", anchor="w", padx=12)
         self.reply.pack(fill="x")
-        compose = tk.Frame(self.hud, bg="#211a36")
-        compose.pack(fill="x", padx=10, pady=(4, 10))
+        compose = tk.Frame(self.hud, bg="#17121f")
+        compose.pack(fill="x", padx=8, pady=(2, 8))
         self.entry = tk.Entry(compose, bg="#11101a", fg="white", insertbackground="white",
-                              relief="flat", width=44)
-        self.entry.pack(side="left", fill="x", expand=True, ipady=5)
+                              relief="flat")
+        self.entry.pack(side="left", fill="x", expand=True, ipady=4)
         self.entry.bind("<Return>", lambda _e: self.submit())
         tk.Button(compose, text="Envoyer", command=self.submit, bg="#6d40ce", fg="white",
-                  relief="flat", padx=10, pady=4).pack(side="left", padx=(6, 0))
-        _native(self.hud)
+                  relief="flat", padx=8, pady=3).pack(side="left", padx=(6, 0))
+        _native(self.hud, activatable=True)
+        self._thumb_photo = None
+        self._thumb_job = None
+        self._last_shot = None
+
+    def _thumb_tick(self):
+        """Refresh the latest-screenshot thumbnail while the panel is up."""
+        self._thumb_job = None
+        if not getattr(self, "_started", False):
+            return
+        try:
+            from .paths import shots_dir
+            files = sorted(shots_dir().glob("shot_*"), key=lambda p: p.stat().st_mtime)
+            if files and files[-1] != self._last_shot:
+                self._last_shot = files[-1]
+                from PIL import Image, ImageTk
+                img = Image.open(files[-1])
+                img.thumbnail((168, 96))
+                self._thumb_photo = ImageTk.PhotoImage(img)
+                self.thumb.configure(image=self._thumb_photo, width=168, height=96)
+        except Exception:  # noqa: BLE001 - a missing/locked shot must never break the panel
+            pass
+        try:
+            self._thumb_job = self.root.after(1200, self._thumb_tick)
+        except tk.TclError:
+            pass
+
+    def log(self, text):
+        """Append a line to the action journal."""
+        try:
+            import time as _t
+            self.log_txt.configure(state="normal")
+            self.log_txt.insert("end", f"{_t.strftime('%H:%M:%S')}  {str(text)[:160]}\n")
+            lines = int(self.log_txt.index("end-1c").split(".")[0])
+            if lines > 120:
+                self.log_txt.delete("1.0", f"{lines - 120}.0")
+            self.log_txt.configure(state="disabled")
+            self.log_txt.see("end")
+        except tk.TclError:
+            pass
 
     def start(self, mode):
-        self.label.configure(text=f"●  AGENT ACTIF  ·  {mode}")
+        self.label.configure(text=f"●  AGENT · {mode}")
         self.reply.configure(text="Dis-moi quoi faire pendant que je travaille.")
-        self.hud.geometry(f"470x116+{max(10, self.root.winfo_screenwidth() // 2 - 235)}+16")
+        self.log("Session démarrée")
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        self.hud.geometry(f"370x330+{max(10, sw - 386)}+{max(10, sh - 346)}")
         self._started = True
-        if self.mode == "always":
+        if self.mode != "hidden":
             self.hud.deiconify()
+        self._thumb_tick()
 
     def set_mode(self, mode):
-        """auto = hidden while the agent clicks, visible between steps;
+        """auto = hidden during captures/clicks, visible while the agent works;
         always = always visible; hidden = never shown."""
         self.mode = mode if mode in ("auto", "always", "hidden") else "auto"
         if self.mode == "hidden":
             self.hud.withdraw()
-        elif self.mode == "always" and getattr(self, "_started", False):
+        elif getattr(self, "_started", False):
             self.hud.deiconify()
 
     def hide_for_action(self):
-        """Disappear while a click/scroll is delivered so the agent can never
-        click the chat interface by accident."""
-        if getattr(self, "_started", False):
+        """Disappear while a capture is taken or a click/scroll is delivered:
+        it must not cover the agent's target (nor appear in its screenshots)."""
+        if getattr(self, "_started", False) and self.mode == "auto":
             self.hud.withdraw()
 
     def show_after_action(self):
-        if self.mode == "always" and getattr(self, "_started", False):
+        if self.mode != "hidden" and getattr(self, "_started", False):
             self.hud.deiconify()
 
     def submit(self):
@@ -158,6 +214,12 @@ class AgentOverlay:
         if self.timer:
             self.root.after_cancel(self.timer)
             self.timer = None
+        if self._thumb_job:
+            try:
+                self.root.after_cancel(self._thumb_job)
+            except tk.TclError:
+                pass
+            self._thumb_job = None
         self.cursor.withdraw()
         self.hud.withdraw()
 
