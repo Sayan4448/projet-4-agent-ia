@@ -66,6 +66,30 @@ def main():
         actual = entry.get("1.0", "end-1c")
         worker.join(1)
         assert actual == text, f"Unicode input differs: expected={text!r}, actual={actual!r}"
+        before = input_control.mouse_position()
+        entry.delete("1.0", "end")
+        clicks = []
+        entry.bind("<ButtonPress-1>", lambda event: clicks.append((event.x, event.y)))
+        input_control.reset_virtual_input()
+        with patch.object(input_control, "_check_target"):
+            # Tk (like some toolkits) silently ignores posted mouse messages: the
+            # virtual click must not move the cursor and must not raise.
+            input_control.virtual_mouse_click(entry.winfo_rootx() + 30, entry.winfo_rooty() + 30)
+            root.update()
+            assert input_control.mouse_position() == before, "Virtual click moved the physical cursor"
+            entry.focus_force()
+            root.update()
+            input_control.virtual_type("Texte virtuel : été, ç, 東京")
+            root.update()
+        assert entry.get("1.0", "end-1c") == "Texte virtuel : été, ç, 東京", "Virtual text was not delivered"
+        # transient fallback: real injected click, cursor restored immediately
+        input_control.transient_click(entry.winfo_rootx() + 30, entry.winfo_rooty() + 30)
+        deadline = time.monotonic() + 2
+        while not clicks and time.monotonic() < deadline:
+            root.update()
+            time.sleep(0.01)
+        assert clicks, "Transient click did not reach the test widget"
+        assert input_control.mouse_position() == before, "Transient click did not restore the cursor"
         found = display.find_window("Native Input Verification")
         assert found, "Window enumeration failed"
         assert display.window_exe(found[0]).lower().startswith("python"), "Process identity lookup failed"

@@ -404,6 +404,7 @@ def screen_fingerprint(window_title: str | None = None, size=(16, 9)) -> tuple:
     Never encoded, never saved: the autonomous watch loop calls this every few
     seconds for up to an hour, so it must stay cheap and leave no files behind.
     """
+    from PIL import Image
     img = None
     if window_title:
         found = find_window(window_title)

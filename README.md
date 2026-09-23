@@ -8,7 +8,7 @@
 
 ![Windows](https://img.shields.io/badge/Windows_10%2F11-x64-8b5cf6)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776ab)
-![Version](https://img.shields.io/badge/version-1.9.1-a78bfa)
+![Version](https://img.shields.io/badge/version-1.9.5-a78bfa)
 
 [Installation](docs/INSTALLATION.md) · [Utilisation](docs/UTILISATION.md) · [IA locale](docs/IA_LOCALE.md) · [Développement](docs/DEVELOPPEMENT.md)
 
@@ -17,7 +17,8 @@
 Un assistant qui observe, agit et vous montre ce qu’il fait. Décrivez votre objectif,
 choisissez **Bureau** ou **Navigateur uniquement**, puis suivez ses actions dans une
 interface sombre à accents violets. Un curseur IA avec halo indique les clics ; un
-bandeau flottant garde l’état d’exécution et le bouton **Stop** à portée de main.
+bandeau optionnel affiche l’état pendant l’analyse et disparaît avant les interactions.
+La discussion est réduite pendant la mission ; **Ctrl + Maj + F12** arrête l’agent.
 
 Projet indépendant, avec une direction visuelle inspirée des assistants de bureau
 comme Neural Agent ; aucune affiliation ni reprise de leur marque.
@@ -31,7 +32,10 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 | **Bureau Windows** | Ouvrir des applications, cliquer, écrire, utiliser le clavier et PowerShell. |
 | **Navigateur uniquement** | Piloter une session Edge/Chrome dédiée, sans injection de souris/clavier sur le bureau. |
 | **Curseur virtuel** | Flèche bleue qui reste à l’endroit du clic (5 s par défaut, réglable), halo animé, indicateur d’activité flottant. |
-| **Actions par capture** | Limite de **1 à 12** actions (défaut : 3) ; limite désactivée = 6 maximum. |
+| **Actions par capture** | **1 à 3** actions maximum (défaut : 3), avec nouvelle observation après un clic ou une navigation. |
+| **Souris indépendante** | Entrées virtuelles Windows par défaut, sans déplacer le pointeur ; certaines applications ne les acceptent pas. Aucun repli physique automatique. |
+| **Mémoire** | Préférences explicites partagées entre Chat et Agent, consultables, effaçables et désactivables dans les paramètres. |
+| **Apparence** | Couleur d’accent, taille du texte Chat et visibilité du bandeau réglables. |
 | **Mode éco** | Images limitées à 960 px, JPEG 60, historique réduit, captures intermédiaires désactivées. |
 | **IA cloud** | Six fournisseurs ; rotation des clés et bascule vers un autre fournisseur cloud configuré en cas d’échec. |
 | **IA locale** | Ollama et LM Studio, adresse configurable, liste des modèles et test de connexion. |
@@ -45,7 +49,7 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 
 ## Installation rapide
 
-1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.1.msi`.
+1. Ouvrir les [**Releases**](https://github.com/Sayan4448/projet-4-agent-ia/releases/latest) et télécharger `Projet4-AgentIA-1.9.5.msi`.
 2. Lancer le MSI puis ouvrir **Projet 4, agent IA** depuis le Bureau ou le menu Démarrer.
 3. Dans **Paramètres**, choisir un fournisseur, charger les modèles, sélectionner un
    modèle puis **Tester la connexion**. Pour les captures, il faut un modèle avec vision.

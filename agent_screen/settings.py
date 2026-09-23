@@ -52,25 +52,38 @@ DEFAULTS = {
     "autonomous_minutes": 60,
     "autonomous_max_calls": 20,
     "autonomous_min_interval": 30,
+    "virtual_input": True,      # "second mouse": never move/park the real cursor
+    "virtual_fallback": True,   # one transient physical retry if a window ignores virtual clicks
+    "hide_during_run": True,
+    "hud_mode": "auto",         # auto-hide the floating bar while clicking
+    "memory_enabled": True,     # learn durable facts about the user
+    "chat_font_size": 11,
+    "accent": "violet",         # interface accent colour
 }
 
 
 def _merge_modes(cfg, source):
     """Shared validation for persisted run options and local server addresses."""
     for key in ("eco_mode", "virtual_cursor", "limit_actions_per_capture", "chat_eco",
-                "autonomous_mode"):
+                "autonomous_mode", "virtual_input", "virtual_fallback", "memory_enabled", "hide_during_run"):
         if key in source:
             cfg[key] = bool(source[key])
     if source.get("execution_mode") in ("desktop", "browser"):
         cfg["execution_mode"] = source["execution_mode"]
     if source.get("agent_profile") in ("general", "video_editing"):
         cfg["agent_profile"] = source["agent_profile"]
+    if source.get("hud_mode") in ("auto", "always", "hidden"):
+        cfg["hud_mode"] = source["hud_mode"]
+    if source.get("accent") in ("violet", "blue", "green", "rose", "orange"):
+        cfg["accent"] = source["accent"]
     if "actions_per_capture" in source:
         try:
-            cfg["actions_per_capture"] = max(1, min(12, int(source["actions_per_capture"])))
+            # 1 to 3 interactions per screenshot, as the product intends
+            cfg["actions_per_capture"] = max(1, min(3, int(source["actions_per_capture"])))
         except (ValueError, TypeError, OverflowError):
             pass
-    for key, default, low, high in (("chat_context_messages", 6, 0, 20),
+    for key, default, low, high in (("chat_font_size", 11, 10, 18),
+                                    ("chat_context_messages", 6, 0, 20),
                                     ("chat_response_tokens", 700, 128, 4096),
                                     ("autonomous_minutes", 60, 5, 240),
                                     ("autonomous_max_calls", 20, 2, 80),

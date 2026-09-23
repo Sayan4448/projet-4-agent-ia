@@ -137,7 +137,7 @@ class TestReliabilityFixes(unittest.TestCase):
             prompts.append(kw["prompt"])
             return replies[min(len(prompts) - 1, 1)], "gemini"
 
-        run = agent.AgentRun("goal", "gemini", max_steps=3, step_delay=0,
+        run = agent.AgentRun("goal", "gemini", max_steps=3, step_delay=0, virtual_input=False,
                              emit=lambda ev, **kw: events.append((ev, kw)))
         with patch("agent_screen.agent.chat_with_fallback", side_effect=fake_chat), \
                 patch("agent_screen.display.capture_for_model",
