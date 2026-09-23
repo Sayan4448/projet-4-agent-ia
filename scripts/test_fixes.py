@@ -802,6 +802,88 @@ class TestReliabilityFixes(unittest.TestCase):
         self.assertEqual(len(opened), 2)      # no browser on a port we do not own
         root.destroy()
 
+    def test_a_bad_event_cannot_kill_the_pump(self):
+        """One malformed event used to propagate out of _pump before the
+        rescheduling line: the queue then stalled forever, 'finished' was
+        never processed and the Run button stayed dead mid-run."""
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        app = gui.App(root)
+        try:
+            app.q.put({"event": "thought"})          # missing 'step' -> raises inside
+            app.q.put({"event": "status", "key": "step_done", "i": 7,
+                       "timings": {"shot_ms": 10, "api_ms": 20, "act_ms": 30}})
+            app._pump()
+            log = app.log.get("1.0", "end")
+            self.assertIn("ignoré", log)             # the bad event was logged
+            self.assertIn("7", log)                  # the next event still ran
+            self.assertIn("20", log)                 # timings reached the journal
+        finally:
+            root.destroy()
+
+    def test_ui_style_and_ai_timeout_are_validated(self):
+        """ui_style accepts only known styles; ai_timeout is clamped."""
+        old = settings.load()
+        try:
+            cfg = settings.save({"ui_style": "banane", "ai_timeout": 5})
+            self.assertEqual(cfg["ui_style"], old["ui_style"])
+            self.assertEqual(cfg["ai_timeout"], 10)
+            cfg = settings.save({"ui_style": "classique", "ai_timeout": 999})
+            self.assertEqual(cfg["ui_style"], "classique")
+            self.assertEqual(cfg["ai_timeout"], 180)
+            cfg = settings.save({"ui_style": "simple", "ai_timeout": old["ai_timeout"]})
+            self.assertEqual(cfg["ui_style"], "simple")
+        finally:
+            settings.save({"ui_style": old.get("ui_style", "simple"),
+                           "ai_timeout": old.get("ai_timeout", 45)})
+
+    def test_step_done_event_carries_phase_timings(self):
+        """Each step reports capture/api/action ms — slowness becomes measurable."""
+        events = []
+        replies = iter([
+            '{"thought":"t","actions":[{"name":"type_text","args":{"text":"hi"}}],"done":false}',
+            '{"thought":"t","actions":[],"done":true,"summary":"fini"}',
+        ])
+        with patch.object(agent, "chat_with_fallback", side_effect=lambda *a, **k: (next(replies), "gemini")), \
+             patch.object(agent.AgentRun, "_shot", return_value="QUJD"), \
+             patch.object(input_control, "type_text", return_value={"ok": True}):
+            run = agent.AgentRun("test", "gemini", max_steps=4, step_delay=0,
+                                 virtual_input=False,
+                                 emit=lambda ev, **kw: events.append((ev, kw)))
+            res = run.run()
+        self.assertTrue(res["ok"])
+        done_steps = [kw for ev, kw in events if ev == "status" and kw.get("key") == "step_done"]
+        self.assertTrue(done_steps)
+        self.assertIn("api_ms", done_steps[0]["timings"])
+        self.assertIn("shot_ms", done_steps[0]["timings"])
+        finished = [kw for ev, kw in events if ev == "finished"]
+        self.assertIn("seconds", finished[0])
+
+    def test_simple_style_builds_rounded_widgets(self):
+        """ui_style=simple builds pill buttons, a rounded goal field and a
+        collapsed advanced block — the classic widgets stay available."""
+        import tkinter as tk
+        old = settings.load()
+        try:
+            settings.save({"ui_style": "simple"})
+            root = tk.Tk()
+            root.withdraw()
+            app = gui.App(root)
+            try:
+                self.assertTrue(app.simple_ui)
+                self.assertIsInstance(app.run_btn, gui.PillButton)
+                self.assertIsInstance(app.goal_entry, tk.Entry)      # rounded host
+                self.assertFalse(app._adv_frame.winfo_manager())     # collapsed
+                app._toggle_advanced()
+                self.assertEqual(app._adv_frame.winfo_manager(), "pack")
+                cv = app._add_card("t", "body")
+                self.assertIsInstance(cv, tk.Canvas)                 # rounded card
+            finally:
+                root.destroy()
+        finally:
+            settings.save({"ui_style": old.get("ui_style", "simple")})
+
     def test_goal_runner_shows_what_ran(self):
         """The page read a never-existing st.action/st.error: the user saw the
         thoughts and nothing about the commands executed on their PC."""

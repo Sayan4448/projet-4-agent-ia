@@ -200,30 +200,66 @@ def T(lang: str, key: str, **kw) -> str:
     return txt.format(**kw) if kw else txt
 
 
-# ------------------------------------------------------------------- modern dark theme
-BG = "#0c0e14"
-CARD = "#141720"
-CARD_HOVER = "#1a1f2b"
-FIELD = "#0e1117"
-LINE = "#202634"
-TXT = "#f0f3f8"
-MUT = "#8492a6"
-MUT_LIGHT = "#a0aec0"
-ACC = "#8b5cf6"
-ACC_HOVER = "#a78bfa"
-OK = "#10b981"
-ERR = "#f43f5e"
-WARN = "#f59e0b"
-GAMEC = "#f97316"
-FALLBACKC = "#a855f7"
+# ------------------------------------------------------------------- themes
+# "classique" = the dense dark UI; "simple" = light, airy, rounded (2.0 default).
+# Widgets read these module-level colors when they are built, so switching the
+# palette happens before construction (settings change -> UI restart).
+PALETTES = {
+    "classique": {
+        "BG": "#0c0e14", "CARD": "#141720", "CARD_HOVER": "#1a1f2b",
+        "FIELD": "#0e1117", "LINE": "#202634", "TXT": "#f0f3f8",
+        "MUT": "#8492a6", "MUT_LIGHT": "#a0aec0",
+        "OK": "#10b981", "ERR": "#f43f5e", "WARN": "#f59e0b",
+        "GAMEC": "#f97316", "FALLBACKC": "#a855f7",
+        "HERO_BG": "#211a36", "HERO_LINE": "#49346d", "HERO_TXT": "#ede9fe",
+        "HERO_MUT": "#b8aaca", "PANEL_BG": "#090b0f", "LOG_FG": "#c8d0e0",
+        "BTN_ACTIVE": "#222735", "BTN_DISABLED": "#11141c", "FG_DISABLED": "#505868",
+        "ACC_DIS_BG": "#1e284a", "ACC_DIS_FG": "#6c7a9c",
+        "DANGER_BG": "#331418", "DANGER_FG": "#fca5a5", "DANGER_LINE": "#5c1f26",
+        "DANGER_ACTIVE": "#4d1b22", "DANGER_DIS_BG": "#1c0d10", "DANGER_DIS_FG": "#6c353c",
+        "USER_C": "#60a5fa", "BOT_C": "#34d399", "BODY_C": "#f1f5f9",
+        "FOOTER_C": "#525d70", "GOAL_C": "#93c5fd", "SHOT_C": "#38bdf8",
+        "BRAND_C": "#ffffff", "TAB_SEL": "#1c2230", "TAB_ACTIVE": "#181d28",
+    },
+    "simple": {
+        "BG": "#f4f3fa", "CARD": "#ffffff", "CARD_HOVER": "#efeaf9",
+        "FIELD": "#ffffff", "LINE": "#e0daf0", "TXT": "#241f36",
+        "MUT": "#857d99", "MUT_LIGHT": "#5c5472",
+        "OK": "#0d9488", "ERR": "#e11d48", "WARN": "#b45309",
+        "GAMEC": "#ea580c", "FALLBACKC": "#9333ea",
+        "HERO_BG": "#ffffff", "HERO_LINE": "#e0daf0", "HERO_TXT": "#6d28d9",
+        "HERO_MUT": "#857d99", "PANEL_BG": "#faf9fe", "LOG_FG": "#4a4258",
+        "BTN_ACTIVE": "#ece7f8", "BTN_DISABLED": "#e8e5f2", "FG_DISABLED": "#a49cb8",
+        "ACC_DIS_BG": "#ddd6f3", "ACC_DIS_FG": "#a89cc9",
+        "DANGER_BG": "#fde8ef", "DANGER_FG": "#be123c", "DANGER_LINE": "#f5bccb",
+        "DANGER_ACTIVE": "#fbd0de", "DANGER_DIS_BG": "#f7eef2", "DANGER_DIS_FG": "#c9a3b1",
+        "USER_C": "#2563eb", "BOT_C": "#059669", "BODY_C": "#2b2540",
+        "FOOTER_C": "#8a8299", "GOAL_C": "#2563eb", "SHOT_C": "#0284c7",
+        "BRAND_C": "#241f36", "TAB_SEL": "#ffffff", "TAB_ACTIVE": "#efeaf9",
+    },
+}
+
+BG = CARD = CARD_HOVER = FIELD = LINE = TXT = MUT = MUT_LIGHT = ""
+ACC = ACC_HOVER = OK = ERR = WARN = GAMEC = FALLBACKC = ""
+HERO_BG = HERO_LINE = HERO_TXT = HERO_MUT = PANEL_BG = LOG_FG = ""
+BTN_ACTIVE = BTN_DISABLED = FG_DISABLED = ACC_DIS_BG = ACC_DIS_FG = ""
+DANGER_BG = DANGER_FG = DANGER_LINE = DANGER_ACTIVE = DANGER_DIS_BG = DANGER_DIS_FG = ""
+USER_C = BOT_C = BODY_C = FOOTER_C = GOAL_C = SHOT_C = BRAND_C = TAB_SEL = TAB_ACTIVE = ""
+
+_ACCENT_COLORS = {"violet": ("#8b5cf6", "#a78bfa"), "blue": ("#2563eb", "#60a5fa"),
+                  "green": ("#047857", "#10b981"), "rose": ("#be185d", "#f472b6"),
+                  "orange": ("#c2410c", "#fb923c")}
 
 
 def apply_dark_theme(root: tk.Tk):
-    global ACC, ACC_HOVER
-    colors = {"violet": ("#8b5cf6", "#a78bfa"), "blue": ("#2563eb", "#60a5fa"),
-              "green": ("#047857", "#10b981"), "rose": ("#be185d", "#f472b6"),
-              "orange": ("#c2410c", "#fb923c")}
-    ACC, ACC_HOVER = colors.get(load().get("accent", "violet"), colors["violet"])
+    """Apply the configured ui_style palette + accent (name kept for callers)."""
+    import agent_screen.gui as _self
+    cfg = load()
+    palette = PALETTES.get(cfg.get("ui_style", "simple"), PALETTES["simple"])
+    for name, value in palette.items():
+        setattr(_self, name, value)
+    ACC_v, ACC_HOVER_v = _ACCENT_COLORS.get(cfg.get("accent", "violet"), _ACCENT_COLORS["violet"])
+    _self.ACC, _self.ACC_HOVER = ACC_v, ACC_HOVER_v
     style = ttk.Style(root)
     for theme in ("clam",):
         if theme in style.theme_names():
@@ -240,18 +276,18 @@ def apply_dark_theme(root: tk.Tk):
     style.configure("TButton", background=CARD, foreground=TXT, bordercolor=LINE,
                     padding=(10, 5), font=("Segoe UI", 9))
     style.map("TButton",
-              background=[("active", "#222735"), ("disabled", "#11141c")],
-              foreground=[("disabled", "#505868")])
+              background=[("active", BTN_ACTIVE), ("disabled", BTN_DISABLED)],
+              foreground=[("disabled", FG_DISABLED)])
     style.configure("Accent.TButton", background=ACC, foreground="#ffffff",
                     font=("Segoe UI", 9, "bold"), bordercolor=ACC)
     style.map("Accent.TButton",
-              background=[("active", ACC_HOVER), ("disabled", "#1e284a")],
-              foreground=[("disabled", "#6c7a9c")])
-    style.configure("Danger.TButton", background="#331418", foreground="#fca5a5",
-                    font=("Segoe UI", 9, "bold"), bordercolor="#5c1f26")
+              background=[("active", ACC_HOVER), ("disabled", ACC_DIS_BG)],
+              foreground=[("disabled", ACC_DIS_FG)])
+    style.configure("Danger.TButton", background=DANGER_BG, foreground=DANGER_FG,
+                    font=("Segoe UI", 9, "bold"), bordercolor=DANGER_LINE)
     style.map("Danger.TButton",
-              background=[("active", "#4d1b22"), ("disabled", "#1c0d10")],
-              foreground=[("disabled", "#6c353c")])
+              background=[("active", DANGER_ACTIVE), ("disabled", DANGER_DIS_BG)],
+              foreground=[("disabled", DANGER_DIS_FG)])
     style.configure("TEntry", fieldbackground=FIELD, foreground=TXT,
                     insertcolor=TXT, bordercolor=LINE, padding=4)
     style.map("TEntry", bordercolor=[("focus", ACC)])
@@ -266,7 +302,7 @@ def apply_dark_theme(root: tk.Tk):
     style.configure("TNotebook.Tab", background=CARD, foreground=MUT,
                     padding=(16, 8), font=("Segoe UI", 9, "bold"))
     style.map("TNotebook.Tab",
-              background=[("selected", "#1c2230"), ("active", "#181d28")],
+              background=[("selected", TAB_SEL), ("active", TAB_ACTIVE)],
               foreground=[("selected", TXT), ("active", TXT)])
     style.configure("Vertical.TScrollbar", background=CARD, bordercolor=BG,
                     troughcolor=BG, arrowcolor=MUT)
@@ -277,6 +313,120 @@ def apply_dark_theme(root: tk.Tk):
         root.option_add("*TCombobox*Listbox.selectBackground", ACC)
     except Exception:
         pass
+
+
+# ---------------------------------------------------------- rounded widgets
+# Tk has no border-radius: the "simple" style draws real rounded shapes on a
+# canvas. Used only when ui_style == "simple"; the classic UI keeps ttk.
+def _round_rect(cv: tk.Canvas, x1, y1, x2, y2, r, **kw):
+    """Rounded rectangle via a smoothed polygon; returns the item id."""
+    r = min(r, (x2 - x1) / 2, (y2 - y1) / 2)
+    pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+           x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+    return cv.create_polygon(pts, smooth=True, **kw)
+
+
+class PillButton(tk.Canvas):
+    """Rounded pill button for the simple theme.
+
+    Deliberately mimics the ttk.Button surface the app actually uses:
+    pack/grid, configure(state=|text=), and a click that fires command.
+    """
+
+    def __init__(self, master, text, command, kind="accent", width=0):
+        super().__init__(master, height=38, bd=0, highlightthickness=0,
+                         cursor="hand2", background=BG)
+        self._text = text
+        self._command = command
+        self._kind = kind
+        self._enabled = True
+        self._hover = False
+        if width:
+            self.configure(width=width)
+        else:
+            self.configure(width=max(96, len(text) * 8 + 44))
+        self.bind("<Configure>", lambda _e: self._draw())
+        self.bind("<Enter>", lambda _e: self._set_hover(True))
+        self.bind("<Leave>", lambda _e: self._set_hover(False))
+        self.bind("<Button-1>", self._click)
+
+    def _palette(self):
+        """(fill, hover_fill, disabled_fill, text, disabled_text)."""
+        if self._kind == "accent":
+            return ACC, ACC_HOVER, ACC_DIS_BG, "#ffffff", ACC_DIS_FG
+        if self._kind == "danger":
+            return ERR, DANGER_ACTIVE, DANGER_DIS_BG, "#ffffff", DANGER_DIS_FG
+        return CARD, CARD_HOVER, BTN_DISABLED, TXT, FG_DISABLED
+
+    def _set_hover(self, value):
+        self._hover = value and self._enabled
+        self._draw()
+
+    def _click(self, _e):
+        if self._enabled and self._command:
+            self._command()
+
+    def configure(self, cnf=None, **kw):
+        if "state" in kw:
+            self._enabled = kw.pop("state") != "disabled"
+            super().configure(cursor="hand2" if self._enabled else "arrow")
+        if "text" in kw:
+            self._text = kw.pop("text")
+        if cnf:
+            kw.update(cnf)
+        if kw:
+            super().configure(**kw)
+        self._draw()
+    config = configure
+
+    def __getitem__(self, key):
+        if key == "state":
+            return "normal" if self._enabled else "disabled"
+        return super().__getitem__(key)
+
+    def _draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 4 or h < 4:
+            return
+        fill, hover, dis_bg, fg, dis_fg = self._palette()
+        face = dis_bg if not self._enabled else hover if self._hover else fill
+        color = dis_fg if not self._enabled else fg
+        _round_rect(self, 1, 1, w - 1, h - 1, h / 2 - 1, fill=face,
+                    outline=LINE if self._kind == "ghost" else face, width=1)
+        self.create_text(w / 2, h / 2, text=self._text, fill=color,
+                         font=("Segoe UI", 10, "bold"))
+
+
+def _rounded_field(parent, font=("Segoe UI", 11), pad_y=10):
+    """Rounded input: a canvas pill outline holding a flat tk.Entry.
+
+    Returns (container_canvas, entry). Grid/pack the canvas, use the entry
+    like a normal Entry (get/insert/delete/bind all work on it).
+    """
+    cv = tk.Canvas(parent, height=44, bd=0, highlightthickness=0, background=BG)
+    state = {"focus": False}
+    inner = tk.Frame(cv, background=FIELD)
+    entry = tk.Entry(inner, font=font, background=FIELD, foreground=TXT,
+                     insertbackground=TXT, relief="flat", bd=0)
+    entry.pack(fill="both", expand=True, padx=16, pady=pad_y)
+    win = cv.create_window(1, 1, window=inner, anchor="nw")
+
+    def _redraw(_e=None):
+        w, h = cv.winfo_width(), cv.winfo_height()
+        if w < 4 or h < 4:
+            return
+        cv.delete("rr")
+        _round_rect(cv, 1, 1, w - 1, h - 1, h / 2 - 1, fill=FIELD,
+                    outline=ACC if state["focus"] else LINE, width=2)
+        cv.itemconfigure(win, width=w - 2, height=h - 2)
+        cv.tag_raise(win)
+
+    entry.bind("<FocusIn>", lambda _e: (state.update(focus=True), _redraw()))
+    entry.bind("<FocusOut>", lambda _e: (state.update(focus=False), _redraw()))
+    cv.bind("<Configure>", _redraw)
+    cv.entry = entry
+    return cv
 
 
 # --------------------------------------------------------------------- app
@@ -302,6 +452,9 @@ class App:
         self._pump_id = None
         self._hidden_for_run = False
         self._hide_during_run = True
+        self._desktop_prepared = False
+        self.simple_ui = self.cfg.get("ui_style", "simple") == "simple"
+        self._advanced_shown = False
 
         root.title(f"⚡ {T(self.lang, 'app')} v{__version__}")
         root.geometry(f"1320x{min(880, root.winfo_screenheight() - 100)}")
@@ -334,7 +487,7 @@ class App:
         title_box = ttk.Frame(bar)
         title_box.pack(side="left")
         ttk.Label(title_box, text="✦ Projet 4 · Agent IA", font=("Segoe UI", 16, "bold"),
-                  foreground="#ffffff").pack(side="left")
+                  foreground=BRAND_C).pack(side="left")
         ttk.Label(title_box, text=f" v{__version__}", font=("Segoe UI", 9),
                   foreground=MUT).pack(side="left", padx=(4, 14))
 
@@ -403,20 +556,25 @@ class App:
         left.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 10))
         left.columnconfigure(0, weight=1)
 
-        hero = tk.Frame(left, bg="#211a36", highlightbackground="#49346d", highlightthickness=1)
+        hero = tk.Frame(left, bg=HERO_BG, highlightbackground=HERO_LINE, highlightthickness=1)
         hero.pack(fill="x", pady=(0, 10))
-        tk.Label(hero, text="Votre objectif. Son prochain mouvement.", bg="#211a36", fg="#ede9fe",
+        tk.Label(hero, text="Votre objectif. Son prochain mouvement.", bg=HERO_BG, fg=HERO_TXT,
                  font=("Segoe UI", 15, "bold"), anchor="w", padx=14, pady=10).pack(fill="x")
-        tk.Label(hero, text="Bureau ou navigateur · IA cloud ou locale · actions visibles", bg="#211a36",
-                 fg="#b8aaca", anchor="w", padx=14, pady=4).pack(fill="x")
+        tk.Label(hero, text="Bureau ou navigateur · IA cloud ou locale · actions visibles", bg=HERO_BG,
+                 fg=HERO_MUT, anchor="w", padx=14, pady=4).pack(fill="x")
 
         # -- Goal Box
         box = ttk.LabelFrame(left, text=f" {self._('goal_box')} ", padding=10)
         box.pack(fill="x")
         box.columnconfigure(0, weight=1)
 
-        self.goal_entry = ttk.Entry(box, font=("Segoe UI", 11))
-        self.goal_entry.grid(row=0, column=0, sticky="ew")
+        if self.simple_ui:
+            goal_field = _rounded_field(box)
+            self.goal_entry = goal_field.entry
+            goal_field.grid(row=0, column=0, sticky="ew")
+        else:
+            self.goal_entry = ttk.Entry(box, font=("Segoe UI", 11))
+            self.goal_entry.grid(row=0, column=0, sticky="ew")
         self.goal_entry.bind("<Return>", lambda e: self._start_run())
 
         preset_row = ttk.Frame(box)
@@ -432,12 +590,19 @@ class App:
 
         btns = ttk.Frame(box)
         btns.grid(row=2, column=0, sticky="ew", pady=(10, 0))
-        self.run_btn = ttk.Button(btns, text=self._("run"), style="Accent.TButton",
-                                  command=self._start_run)
-        self.run_btn.pack(side="left")
-        self.stop_btn = ttk.Button(btns, text=self._("stop"), style="Danger.TButton",
-                                   command=self._stop_run, state="disabled")
-        self.stop_btn.pack(side="left", padx=8)
+        if self.simple_ui:
+            self.run_btn = PillButton(btns, self._("run"), self._start_run, kind="accent")
+            self.run_btn.pack(side="left")
+            self.stop_btn = PillButton(btns, self._("stop"), self._stop_run, kind="danger")
+            self.stop_btn.configure(state="disabled")
+            self.stop_btn.pack(side="left", padx=8)
+        else:
+            self.run_btn = ttk.Button(btns, text=self._("run"), style="Accent.TButton",
+                                      command=self._start_run)
+            self.run_btn.pack(side="left")
+            self.stop_btn = ttk.Button(btns, text=self._("stop"), style="Danger.TButton",
+                                       command=self._stop_run, state="disabled")
+            self.stop_btn.pack(side="left", padx=8)
 
         self.status_lbl = ttk.Label(btns, text=self._("idle"), foreground=MUT_LIGHT,
                                     wraplength=340, justify="left")
@@ -457,8 +622,19 @@ class App:
         self.eco_var = tk.BooleanVar(value=self.cfg.get("eco_mode", False))
         ttk.Checkbutton(game_row, text="Éco", variable=self.eco_var,
                         command=self._save_run_options).pack(side="right")
+        # Simple style: the fine-tuning rows collapse into an "advanced" block
+        # so the default screen stays clean. Everything remains editable here
+        # or in Settings — nothing is removed.
+        adv = game_box
+        if self.simple_ui:
+            adv = ttk.Frame(left)
+            adv.columnconfigure(0, weight=1)
+            self._adv_frame = adv
+            self.adv_toggle = PillButton(left, "⚙  Options avancées  ▸",
+                                         self._toggle_advanced, kind="ghost")
+            self.adv_toggle.pack(fill="x", pady=(10, 0))
         self.profile_var = tk.StringVar(value=self.cfg.get("agent_profile", "general"))
-        profile_row = ttk.Frame(game_box)
+        profile_row = ttk.Frame(adv)
         profile_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         ttk.Label(profile_row, text="Profil :", foreground=MUT).pack(side="left")
         ttk.Radiobutton(profile_row, text="Général", value="general", variable=self.profile_var,
@@ -468,7 +644,7 @@ class App:
         self.autonomous_var = tk.BooleanVar(value=self.cfg.get("autonomous_mode", False))
         ttk.Checkbutton(profile_row, text="Autonome", variable=self.autonomous_var,
                         command=self._save_run_options).pack(side="right")
-        options = ttk.Frame(game_box)
+        options = ttk.Frame(adv)
         options.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         self.cursor_var = tk.BooleanVar(value=self.cfg.get("virtual_cursor", True))
         ttk.Checkbutton(options, text="Curseur IA visible", variable=self.cursor_var,
@@ -476,7 +652,7 @@ class App:
         self.game_var = tk.BooleanVar(value=bool(self.cfg.get("game_mode")))
         ttk.Checkbutton(options, text="Touches jeu (bureau)", variable=self.game_var,
                         command=self._toggle_game).pack(side="left")
-        limits = ttk.Frame(game_box)
+        limits = ttk.Frame(adv)
         limits.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.limit_var = tk.BooleanVar(value=self.cfg.get("limit_actions_per_capture", True))
         ttk.Checkbutton(limits, text="Limiter les actions par capture", variable=self.limit_var,
@@ -485,14 +661,18 @@ class App:
         self.action_count.set(self.cfg.get("actions_per_capture", 3))
         self.action_count.pack(side="left", padx=8)
         self.action_count.bind("<FocusOut>", lambda e: self._save_run_options())
-        ttk.Label(game_box, text="Éco : captures 960 px / JPEG 60, contexte court, sans captures intermédiaires.",
+        ttk.Label(adv, text="Éco : captures 960 px / JPEG 60, contexte court, sans captures intermédiaires.",
                   foreground=MUT, wraplength=490).grid(row=4, column=0, sticky="w", pady=(6, 0))
-        ttk.Label(game_box, text="Autonome : veille locale gratuite, réveil sur message/changement, budget borné.",
+        ttk.Label(adv, text="Autonome : veille locale gratuite, réveil sur message/changement, budget borné.",
                   foreground=MUT, wraplength=490).grid(row=5, column=0, sticky="w", pady=(2, 0))
 
         # -- Window Capture
-        win_box = ttk.LabelFrame(left, text=self._("window_box"), padding=10)
-        win_box.pack(fill="x", pady=(10, 0))
+        win_box = ttk.LabelFrame(adv if self.simple_ui else left,
+                                 text=self._("window_box"), padding=10)
+        if self.simple_ui:
+            win_box.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        else:
+            win_box.pack(fill="x", pady=(10, 0))
         win_box.columnconfigure(0, weight=1)
         self.win_var = tk.BooleanVar(value=bool(self.cfg.get("window_mode")))
         ttk.Checkbutton(win_box, text=self._("window_only"), variable=self.win_var,
@@ -509,12 +689,18 @@ class App:
         # -- Guidance
         guide_box = ttk.LabelFrame(left, text=f" {self._('guidance_box')} ", padding=10)
         guide_box.pack(fill="x", pady=(10, 0))
+        self._guide_box = guide_box     # anchor: the advanced block packs before it
         guide_box.columnconfigure(0, weight=1)
         self.guide_entry = ttk.Entry(guide_box)
         self.guide_entry.grid(row=0, column=0, sticky="ew")
         self.guide_entry.bind("<Return>", lambda e: self._send_guidance())
-        self.guide_btn = ttk.Button(guide_box, text=self._("send_guidance"),
-                                    style="TButton", command=self._send_guidance, state="disabled")
+        if self.simple_ui:
+            self.guide_btn = PillButton(guide_box, self._("send_guidance"),
+                                        self._send_guidance, kind="ghost", width=170)
+            self.guide_btn.configure(state="disabled")
+        else:
+            self.guide_btn = ttk.Button(guide_box, text=self._("send_guidance"),
+                                        style="TButton", command=self._send_guidance, state="disabled")
         self.guide_btn.grid(row=0, column=1, padx=(8, 0))
 
         # -- Emergency stop notice
@@ -524,10 +710,15 @@ class App:
                   wraplength=460, justify="left", font=("Segoe UI", 9, "bold")).pack(fill="x")
 
         # -- Session Log
-        log_box = ttk.LabelFrame(left, text=f" {self._('session_log')} ", padding=6)
-        log_box.pack(fill="both", expand=True, pady=(6, 0))
+        log_box = ttk.LabelFrame(adv if self.simple_ui else left,
+                                 text=f" {self._('session_log')} ", padding=6)
+        if self.simple_ui:
+            adv.rowconfigure(8, weight=1)
+            log_box.grid(row=8, column=0, sticky="nsew", pady=(10, 0))
+        else:
+            log_box.pack(fill="both", expand=True, pady=(6, 0))
         self.log = tk.Text(log_box, height=5, wrap="word", state="disabled",
-                           font=("Consolas", 9), background=FIELD, foreground="#c8d0e0",
+                           font=("Consolas", 9), background=FIELD, foreground=LOG_FG,
                            relief="flat", padx=8, pady=6, insertbackground=TXT)
         log_scroll = ttk.Scrollbar(log_box, command=self.log.yview)
         self.log.configure(yscrollcommand=log_scroll.set)
@@ -540,7 +731,7 @@ class App:
         right.rowconfigure(0, weight=1)
         right.columnconfigure(0, weight=1)
 
-        self.canvas = tk.Canvas(right, highlightthickness=0, background="#090b0f")
+        self.canvas = tk.Canvas(right, highlightthickness=0, background=PANEL_BG)
         self.scroll = ttk.Scrollbar(right, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.scroll.set)
         self.canvas.grid(row=0, column=0, sticky="nsew")
@@ -605,6 +796,18 @@ class App:
             self.goal_entry.insert(0, val)
             self._start_run()
 
+    def _toggle_advanced(self):
+        """Simple style: show/hide the fine-tuning block (nothing is removed —
+        every control also lives in Settings)."""
+        self._advanced_shown = not self._advanced_shown
+        if self._advanced_shown:
+            self._adv_frame.pack(fill="both", expand=True, pady=(10, 0),
+                                 before=self._guide_box)
+            self.adv_toggle.configure(text="⚙  Options avancées  ▾")
+        else:
+            self._adv_frame.pack_forget()
+            self.adv_toggle.configure(text="⚙  Options avancées  ▸")
+
     def _toggle_game(self):
         save({"game_mode": bool(self.game_var.get())})
         self._refresh_badge()
@@ -650,7 +853,16 @@ class App:
         self._refresh_badge()
 
     # -- Activity Cards with colored left accent borders
-    def _add_card(self, title: str, body: str = "", color: str = TXT, accent: str = ACC) -> ttk.Frame:
+    def _add_card(self, title: str, body: str = "", color: str = None, accent: str = None):
+        # palette globals are filled by apply_dark_theme AFTER def-time, so
+        # defaults must be resolved here — never as default arguments
+        color = color or TXT
+        accent = accent or ACC
+        if self.simple_ui:
+            cv = self._simple_card(title, body, color, accent)
+            self.canvas.update_idletasks()
+            self.canvas.yview_moveto(1.0)
+            return cv
         card = tk.Frame(self.inner, background=CARD, padx=0, pady=0,
                         highlightthickness=1, highlightbackground=LINE)
         card.pack(fill="x", padx=6, pady=5)
@@ -674,8 +886,77 @@ class App:
         self.canvas.yview_moveto(1.0)
         return card
 
+    def _simple_card(self, title: str, body: str = "", color: str = None,
+                     accent: str = None) -> tk.Canvas:
+        """Activity card as a real rounded panel (simple theme). The canvas
+        redraws itself on resize; a shot card attaches state["photo"]."""
+        color = color or TXT
+        accent = accent or ACC
+        cv = tk.Canvas(self.inner, background=PANEL_BG, highlightthickness=0, bd=0)
+        cv.pack(fill="x", padx=8, pady=5)
+        state = {"photo": None, "on_img_dbl": None}
+
+        def redraw(_e=None):
+            w = cv.winfo_width()
+            if w < 20:
+                w = max(60, self.canvas.winfo_width() - 22)
+            cv.delete("all")
+            y = 14
+            cv.create_text(18, y, anchor="nw", text=title,
+                           font=("Segoe UI", 10, "bold"), fill=accent)
+            y += 25
+            if body:
+                t = cv.create_text(18, y, anchor="nw", text=body, width=w - 36,
+                                   font=("Segoe UI", 10), fill=color)
+                y = cv.bbox(t)[3] + 8
+            if state["photo"]:
+                item = cv.create_image(18, y, anchor="nw", image=state["photo"])
+                if state["on_img_dbl"]:
+                    cv.tag_bind(item, "<Double-Button-1>", state["on_img_dbl"])
+                y += state["photo"].height() + 4
+                t2 = cv.create_text(18, y, anchor="nw", text=self._("dbl_click"),
+                                    font=("Segoe UI", 8), fill=MUT)
+                y = cv.bbox(t2)[3]
+            h = y + 12
+            rect = _round_rect(cv, 0, 0, w, h, 14, fill=CARD, outline=LINE)
+            cv.tag_lower(rect)
+            cv.configure(height=h)
+
+        cv.bind("<Configure>", redraw)
+        cv.card_state = state
+        cv.redraw = redraw
+        return cv
+
+    def _enlarge_shot(self, img):
+        win = tk.Toplevel(self.root)
+        win.title("Agent Screen — Capture d'écran")
+        big = img.copy()
+        big.thumbnail((1100, 720))
+        ph = ImageTk.PhotoImage(big)
+        lbl2 = tk.Label(win, image=ph, background="#000")
+        lbl2.image = ph
+        lbl2.pack()
+        win.geometry(f"{big.width}x{big.height}")
+
     def _add_shot_card(self, title: str, b64_png: str):
-        card = self._add_card(title, accent="#38bdf8")
+        if self.simple_ui:
+            cv = self._simple_card(title, accent=SHOT_C)
+            try:
+                img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
+                thumb = img.copy()
+                thumb.thumbnail((390, 230), resample=Image.BILINEAR, reducing_gap=2.0)
+                photo = ImageTk.PhotoImage(thumb)
+                self._thumb_refs.append(photo)
+                cv.card_state["photo"] = photo
+                cv.card_state["on_img_dbl"] = lambda _e, img=img: self._enlarge_shot(img)
+                cv.redraw()
+            except Exception as e:
+                tk.Label(cv, text=self._("no_shot", e=e), font=("Segoe UI", 9),
+                         background=CARD, foreground=ERR).pack(pady=4)
+            self.canvas.update_idletasks()
+            self.canvas.yview_moveto(1.0)
+            return
+        card = self._add_card(title, accent=SHOT_C)
         try:
             img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
             thumb = img.copy()
@@ -686,18 +967,7 @@ class App:
             lbl = tk.Label(card, image=photo, background=CARD, cursor="hand2")
             lbl.pack(padx=10, pady=(0, 4))
 
-            def enlarge(_e, img=img):
-                win = tk.Toplevel(self.root)
-                win.title("Agent Screen — Capture d'écran")
-                big = img.copy()
-                big.thumbnail((1100, 720))
-                ph = ImageTk.PhotoImage(big)
-                lbl2 = tk.Label(win, image=ph, background="#000")
-                lbl2.image = ph
-                lbl2.pack()
-                win.geometry(f"{big.width}x{big.height}")
-
-            lbl.bind("<Double-Button-1>", enlarge)
+            lbl.bind("<Double-Button-1>", lambda _e, img=img: self._enlarge_shot(img))
             tk.Label(card, text=self._("dbl_click"), font=("Segoe UI", 8),
                      background=CARD, foreground=MUT).pack(pady=(0, 4))
         except Exception as e:
@@ -732,7 +1002,7 @@ class App:
         self._thumb_refs.clear()
         self.fallback_pill.config(text="")
 
-        self._add_card(T(self.lang, "card_goal"), goal, color="#93c5fd", accent=ACC)
+        self._add_card(T(self.lang, "card_goal"), goal, color=GOAL_C, accent=ACC)
         self.run_btn.config(state="disabled")
         self.stop_btn.config(state="normal")
         self.guide_btn.config(state="normal")
@@ -1001,7 +1271,7 @@ class App:
         for ev in session.get("events", []):
             kind, step, text = ev.get("kind", ""), ev.get("step", 0), ev.get("text", "")
             if kind == "goal":
-                self._add_card(T(self.lang, "card_goal"), text, color="#93c5fd", accent=ACC)
+                self._add_card(T(self.lang, "card_goal"), text, color=GOAL_C, accent=ACC)
             elif kind == "thought":
                 self._add_card(f"💭 {step} · {self._('thinking')}", text, color=TXT, accent=ACC)
             elif kind == "action":
@@ -1019,7 +1289,7 @@ class App:
             elif kind == "fallback":
                 self._add_card("🔄 Bascule IA / Auto-Fallback", text, color=FALLBACKC, accent=FALLBACKC)
             elif kind == "video":
-                self._add_card("🎬 Clip enregistré", text, color="#38bdf8", accent="#38bdf8")
+                self._add_card("🎬 Clip enregistré", text, color=SHOT_C, accent=SHOT_C)
             elif kind == "done":
                 self._add_card(T(self.lang, "reached"), text, color=OK, accent=OK)
             elif kind == "error":
@@ -1031,39 +1301,62 @@ class App:
         self.q.put({"event": event, **kw})
 
     def _pump(self):
-        if self.run and os.name == "nt":
-            import ctypes
-            key = ctypes.windll.user32.GetAsyncKeyState
-            if all(key(k) & 0x8000 for k in (0x11, 0x10, 0x7B)):
-                self._stop_run()
+        # One bad event must never kill the pump: each message is handled under
+        # its own try, and the 80 ms tick is rescheduled in a finally. A dead
+        # pump is what used to leave the run "finished" while the UI looked
+        # frozen (buttons dead, events piling up in the queue).
         try:
+            if self.run and os.name == "nt":
+                import ctypes
+                key = ctypes.windll.user32.GetAsyncKeyState
+                if all(key(k) & 0x8000 for k in (0x11, 0x10, 0x7B)):
+                    self._stop_run()
             while True:
-                msg = self.q.get_nowait()
-                self._handle_event(msg)
-        except queue.Empty:
-            pass
+                try:
+                    msg = self.q.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._handle_event(msg)
+                except Exception as e:  # noqa: BLE001
+                    try:
+                        self._log(f"⚠ événement ignoré ({msg.get('event')}): {e}")
+                    except Exception:  # noqa: BLE001
+                        pass
+            # a run claiming the mouse is the truth: if the thread died without
+            # emitting 'finished', this stops the Run button from staying dead
+            if self.run is not None and agent.active_run() is None:
+                self._finish("⏹")
         except tk.TclError:
             return
-        # a run claiming the mouse is the truth: if the thread died without emitting
-        # 'finished', this is what stops the Run button from staying dead forever
-        if self.run is not None and agent.active_run() is None:
-            self._finish("⏹")
-        try:
-            self._pump_id = self.root.after(80, self._pump)
-        except tk.TclError:
-            pass
+        finally:
+            try:
+                self._pump_id = self.root.after(80, self._pump)
+            except tk.TclError:
+                pass
 
     def _handle_event(self, msg):
         ev = msg["event"]
         if ev == "prepare_desktop":
             if self.run and not self.run.stopped:
-                if self._hide_during_run and self.root.state() not in ("iconic", "withdrawn"):
-                    self.root.iconify()
-                    self._hidden_for_run = True
+                # already hidden (window iconified + HUD withdrawn): confirm at
+                # once instead of paying the 100 ms hide delay on every action
+                already = (self.root.state() in ("iconic", "withdrawn")
+                           or not self._hide_during_run) and self._desktop_prepared
+                if not self._desktop_prepared:
+                    if self._hide_during_run and self.root.state() not in ("iconic", "withdrawn"):
+                        self.root.iconify()
+                        self._hidden_for_run = True
+                    if self.overlay:
+                        self.overlay.hide_for_action()
+                    self.root.update_idletasks()
+                    self._desktop_prepared = True
                 if self.overlay:
                     self.overlay.hide_for_action()
-                self.root.update_idletasks()
-                self.root.after(100, msg["ready"].set)
+                if already:
+                    msg["ready"].set()
+                else:
+                    self.root.after(100, msg["ready"].set)
             else:
                 msg["ready"].set()
         elif ev == "thinking":
@@ -1109,12 +1402,12 @@ class App:
             self._add_shot_card(f"📸 {msg['step']}{sub} · {self._('after_action')}", msg["image"])
         elif ev == "motion":
             self._add_card("Séquence observée", f"{len(msg['frames'])} images sur {msg['seconds']:.1f} secondes",
-                           color="#38bdf8", accent="#38bdf8")
+                           color=SHOT_C, accent=SHOT_C)
         elif ev == "video":
             self._record("video", msg["path"])
             self._add_card("🎬 Clip enregistré",
                            f"{msg['file']} · {msg['seconds']} s\n{msg['path']}",
-                           color="#38bdf8", accent="#38bdf8")
+                           color=SHOT_C, accent=SHOT_C)
             self._log(f"🎬 {msg['path']}")
         elif ev == "autonomous_wait":
             text = f"Veille locale · {msg['calls']}/{msg['budget']} appels IA"
@@ -1163,8 +1456,11 @@ class App:
                 self.overlay.log(f"✖ {msg['text'][:90]}")
         elif ev == "finished":
             outcome = msg.get("outcome", "done")
+            secs = msg.get("seconds")
             if self.overlay:
-                self.overlay.log(f"■ Fin : {outcome}")
+                self.overlay.log(f"■ Fin : {outcome}" + (f" · {secs}s" if secs else ""))
+            if secs:
+                self._record("timing", f"durée totale : {secs}s")
             self._save_run_session(outcome)
             if outcome == "done":
                 self._finish("✔")
@@ -1210,7 +1506,16 @@ class App:
         elif ev == "status":
             key = msg.get("key")
             if key == "step_done":
-                self._log(self._("step_done", i=msg.get("i", "")))
+                tm = msg.get("timings") or {}
+                detail = "  ·  capture {shot} ms · IA {api} ms · actions {act} ms".format(
+                    shot=tm.get("shot_ms", "?"), api=tm.get("api_ms", "?"),
+                    act=tm.get("act_ms", "?")) if tm else ""
+                self._log(self._("step_done", i=msg.get("i", "")) + detail)
+                if tm:
+                    self._record("timing",
+                                 f"step {msg.get('i')}: capture={tm.get('shot_ms')}ms "
+                                 f"ia={tm.get('api_ms')}ms actions={tm.get('act_ms')}ms",
+                                 msg.get("i", 0))
             elif key and key in S:
                 self._log(self._(key))
             else:
@@ -1219,6 +1524,7 @@ class App:
     def _finish(self, mark: str):
         if self.overlay:
             self.overlay.finish()
+        self._desktop_prepared = False
         if self._hidden_for_run:
             self.root.deiconify()
             self._hidden_for_run = False
@@ -1249,8 +1555,12 @@ class App:
         sidebar.grid_propagate(False)
         ttk.Label(sidebar, text="Discussions", font=("Segoe UI", 12, "bold"),
                   foreground=TXT).pack(anchor="w", pady=(4, 8))
-        ttk.Button(sidebar, text="＋ Nouvelle discussion", style="Accent.TButton",
-                   command=self._new_chat).pack(fill="x", pady=(0, 8))
+        if self.simple_ui:
+            PillButton(sidebar, "＋ Nouvelle discussion", self._new_chat,
+                       kind="accent").pack(fill="x", pady=(0, 8))
+        else:
+            ttk.Button(sidebar, text="＋ Nouvelle discussion", style="Accent.TButton",
+                       command=self._new_chat).pack(fill="x", pady=(0, 8))
         self.chat_list = tk.Listbox(sidebar, width=33, background=CARD, foreground=TXT,
                                     selectbackground=ACC, selectforeground="white", relief="flat",
                                     highlightthickness=1, highlightbackground=LINE,
@@ -1271,10 +1581,10 @@ class App:
                                  font=("Segoe UI", 10), background=FIELD, foreground=TXT,
                                  padx=18, pady=16, insertbackground=TXT, relief="flat",
                                  spacing1=2, spacing3=10)
-        self.chat_view.tag_configure("user_hdr", foreground="#60a5fa", font=("Segoe UI", 10, "bold"), spacing1=12)
-        self.chat_view.tag_configure("bot_hdr", foreground="#34d399", font=("Segoe UI", 10, "bold"), spacing1=12)
+        self.chat_view.tag_configure("user_hdr", foreground=USER_C, font=("Segoe UI", 10, "bold"), spacing1=12)
+        self.chat_view.tag_configure("bot_hdr", foreground=BOT_C, font=("Segoe UI", 10, "bold"), spacing1=12)
         self.chat_view.tag_configure("err_hdr", foreground=ERR, font=("Segoe UI", 10, "bold"), spacing1=12)
-        self.chat_view.tag_configure("body", foreground="#f1f5f9", font=("Segoe UI", 10), spacing3=6)
+        self.chat_view.tag_configure("body", foreground=BODY_C, font=("Segoe UI", 10), spacing3=6)
 
         scroll = ttk.Scrollbar(tab, command=self.chat_view.yview)
         self.chat_view.configure(yscrollcommand=scroll.set)
@@ -1298,12 +1608,18 @@ class App:
         entry_row.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         entry_row.columnconfigure(0, weight=1)
 
-        self.chat_entry = ttk.Entry(entry_row, font=("Segoe UI", 11))
-        self.chat_entry.grid(row=0, column=0, sticky="ew")
+        if self.simple_ui:
+            chat_field = _rounded_field(entry_row)
+            self.chat_entry = chat_field.entry
+            chat_field.grid(row=0, column=0, sticky="ew")
+            self.chat_send = PillButton(entry_row, T(self.lang, "send"),
+                                        self._send_chat, kind="accent", width=110)
+        else:
+            self.chat_entry = ttk.Entry(entry_row, font=("Segoe UI", 11))
+            self.chat_entry.grid(row=0, column=0, sticky="ew")
+            self.chat_send = ttk.Button(entry_row, text=T(self.lang, "send"),
+                                        style="Accent.TButton", command=self._send_chat)
         self.chat_entry.bind("<Return>", lambda e: self._send_chat())
-
-        self.chat_send = ttk.Button(entry_row, text=T(self.lang, "send"),
-                                    style="Accent.TButton", command=self._send_chat)
         self.chat_send.grid(row=0, column=1, padx=(8, 0))
         self._refresh_chat_list()
         self._apply_appearance()
@@ -1698,6 +2014,12 @@ class App:
         delay_spin.grid(row=sr, column=1, sticky="w", pady=3)
         sr += 1
 
+        ttk.Label(sec2, text="Délai max par réponse de l’IA (secondes)").grid(row=sr, column=0, sticky="w", pady=3)
+        timeout_spin = ttk.Spinbox(sec2, from_=10, to=180, increment=5, width=8)
+        timeout_spin.set(cfg.get("ai_timeout", 45))
+        timeout_spin.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+
         grid_var = tk.BooleanVar(value=bool(cfg.get("grid", True)))
         ttk.Checkbutton(sec2, text=T(lang, "grid"), variable=grid_var).grid(
             row=sr, column=0, columnspan=2, sticky="w", pady=2)
@@ -1814,26 +2136,34 @@ class App:
         appearance.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         appearance.columnconfigure(1, weight=1)
         r += 1
-        ttk.Label(appearance, text="Couleur d’accent").grid(row=0, column=0, sticky="w", pady=3)
+        style_labels = {"simple": "Simple — clair et arrondi",
+                        "classique": "Complète — sombre et dense"}
+        ttk.Label(appearance, text="Style d’interface").grid(row=0, column=0, sticky="w", pady=3)
+        style_cb = ttk.Combobox(appearance, state="readonly", values=list(style_labels.values()))
+        style_cb.set(style_labels[cfg.get("ui_style", "simple")])
+        style_cb.grid(row=0, column=1, sticky="ew", pady=3)
+        ttk.Label(appearance, text="Le changement de style redémarre l’interface.",
+                  foreground=MUT, font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=8)
+        ttk.Label(appearance, text="Couleur d’accent").grid(row=1, column=0, sticky="w", pady=3)
         accent_cb = ttk.Combobox(appearance, state="readonly", values=("violet", "blue", "green", "rose", "orange"))
         accent_cb.set(cfg["accent"])
-        accent_cb.grid(row=0, column=1, sticky="ew", pady=3)
-        ttk.Label(appearance, text="Taille du texte des discussions").grid(row=1, column=0, sticky="w", pady=3)
+        accent_cb.grid(row=1, column=1, sticky="ew", pady=3)
+        ttk.Label(appearance, text="Taille du texte des discussions").grid(row=2, column=0, sticky="w", pady=3)
         font_spin = ttk.Spinbox(appearance, from_=10, to=18, width=8)
         font_spin.set(cfg["chat_font_size"])
-        font_spin.grid(row=1, column=1, sticky="w", pady=3)
+        font_spin.grid(row=2, column=1, sticky="w", pady=3)
         memory_var = tk.BooleanVar(value=cfg["memory_enabled"])
         ttk.Checkbutton(appearance, text="Mémoriser mes préférences (Chat et Agent)", variable=memory_var).grid(
-            row=2, column=0, columnspan=2, sticky="w", pady=(8, 3))
+            row=3, column=0, columnspan=2, sticky="w", pady=(8, 3))
         ttk.Label(appearance, text="Apprentissage local des phrases explicites : « retiens que… », « je préfère… »,\n« j’utilise… ». Aucun appel IA supplémentaire. Désactivé : ni lecture ni ajout.\nActivé : les préférences sont incluses dans le contexte envoyé au fournisseur choisi.\nL’historique des discussions est distinct de cette mémoire.",
-                  foreground=MUT, wraplength=510).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+                  foreground=MUT, wraplength=510).grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
         facts_list = tk.Listbox(appearance, height=5, bg=FIELD, fg=TXT, selectbackground=ACC,
                                 exportselection=False, relief="flat")
-        facts_list.grid(row=4, column=0, columnspan=2, sticky="ew", pady=4)
+        facts_list.grid(row=5, column=0, columnspan=2, sticky="ew", pady=4)
         fact_entry = ttk.Entry(appearance)
-        fact_entry.grid(row=5, column=0, columnspan=2, sticky="ew", pady=4)
+        fact_entry.grid(row=6, column=0, columnspan=2, sticky="ew", pady=4)
         memory_status = ttk.Label(appearance, foreground=MUT, wraplength=510)
-        memory_status.grid(row=7, column=0, columnspan=2, sticky="w")
+        memory_status.grid(row=8, column=0, columnspan=2, sticky="w")
         facts = []
 
         def refresh_memory():
@@ -1864,7 +2194,7 @@ class App:
                 memory_status.config(text=str(error), foreground=ERR)
 
         memory_buttons = ttk.Frame(appearance)
-        memory_buttons.grid(row=6, column=0, columnspan=2, sticky="ew", pady=4)
+        memory_buttons.grid(row=7, column=0, columnspan=2, sticky="ew", pady=4)
         for label, operation in (("Ajouter", "add"), ("Supprimer", "delete"), ("Tout effacer", "clear")):
             ttk.Button(memory_buttons, text=label, command=lambda op=operation: change_memory(op)).pack(side="left", padx=3)
         refresh_memory()
@@ -1881,6 +2211,10 @@ class App:
             except ValueError:
                 max_steps = 20
             new_lang = "fr" if lang_cb.current() == 0 else "en"
+            try:
+                ai_timeout = max(10, min(180, int(timeout_spin.get())))
+            except ValueError:
+                ai_timeout = 45
             return save({
                 "provider": p,
                 "local_urls": {p: e.get() for p, e in url_entries.items()},
@@ -1903,6 +2237,8 @@ class App:
                 "limit_actions_per_capture": True,
                 "memory_enabled": bool(memory_var.get()),
                 "accent": accent_cb.get(),
+                "ui_style": next(k for k, v in style_labels.items() if v == style_cb.get()),
+                "ai_timeout": ai_timeout,
                 "chat_font_size": font_spin.get(),
                 "cursor_linger": cursor_linger_spin.get(),
                 "chat_eco": bool(chat_eco_var.get()),
@@ -1925,6 +2261,7 @@ class App:
                 info_lbl.config(text=str(e), foreground=ERR)
                 return
             old_lang = cfg.get("language", "fr")
+            old_style = cfg.get("ui_style", "simple")
             self._refresh_badge()
             # Settings and the Agent tab keep the same options in two places: the
             # dialog used to update only game/window, so toggling "Autonome" (or
@@ -1932,7 +2269,7 @@ class App:
             # checkbox on the next run — the exact "mode autonome cassé" bug.
             self._apply_cfg_to_controls(new_cfg)
             self._apply_appearance()
-            if new_cfg.get("language") != old_lang:
+            if new_cfg.get("language") != old_lang or new_cfg.get("ui_style") != old_style:
                 info_lbl.config(text=T(new_cfg.get("language", "fr"), "saved_restart"))
                 self.restart_requested = True
                 owned = agent.active_run()
@@ -1990,7 +2327,7 @@ class App:
         r += 1
         info_lbl.grid(row=r, column=0, columnspan=2, sticky="ew")
         r += 1
-        ttk.Label(frm, foreground="#525d70", wraplength=540, justify="left",
+        ttk.Label(frm, foreground=FOOTER_C, wraplength=540, justify="left",
                   text=T(lang, "footer"), font=("Segoe UI", 8)).grid(
             row=r, column=0, columnspan=2, sticky="ew", pady=(4, 0))
 
