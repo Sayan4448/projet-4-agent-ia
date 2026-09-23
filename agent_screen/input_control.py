@@ -164,6 +164,8 @@ WM_MBUTTONDOWN = 0x0207
 WM_MBUTTONUP = 0x0208
 WM_MOUSEWHEEL = 0x020A
 WM_MOUSEHWHEEL = 0x020E
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
 WM_CHAR = 0x0102
 MK_LBUTTON = 0x0001
 MK_RBUTTON = 0x0002
@@ -173,6 +175,9 @@ GA_ROOT = 2
 _CWP_SKIP = 0x0001 | 0x0004  # skip invisible + transparent children
 
 _v_pos = [None, None]    # where the virtual cursor currently is
+_v_hwnd = [None]         # deepest window under the last virtual click: virtual
+                         # typing/keys go there — the click target, not whatever
+                         # happens to own the real foreground
 
 
 if os.name == "nt":
@@ -193,6 +198,7 @@ if os.name == "nt":
 
 def reset_virtual_input():
     _v_pos[:] = [None, None]
+    _v_hwnd[0] = None
 
 
 def virtual_position():
@@ -300,6 +306,7 @@ def virtual_mouse_click(x=None, y=None, button: str = "left", clicks: int = 1) -
         _post(hwnd, dbl if i == 1 and dbl else down, mk, lp)
         _post(hwnd, up, 0, lp)
     _v_pos[0], _v_pos[1] = int(x), int(y)
+    _v_hwnd[0] = hwnd
     return {"virtual_clicked": [int(x), int(y)], "button": button, "clicks": clicks}
 
 
@@ -329,6 +336,7 @@ def virtual_mouse_drag(x: int, y: int, duration: float = 0.4) -> dict:
     finally:
         _post(h0, up, 0, _lparam(cp.x, cp.y))
     _v_pos[0], _v_pos[1] = int(x), int(y)
+    _v_hwnd[0] = h0
     return {"virtual_dragged_to": [int(x), int(y)]}
 
 
@@ -387,34 +395,96 @@ def transient_click(x: int, y: int, button: str = "left") -> dict:
     return {"transient_clicked": [x, y], "button": button}
 
 
+class _GUIThreadInfo(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                ("rcCaret", wintypes.RECT)]
+
+
+def _type_target():
+    """hwnd that receives virtual keystrokes: the deepest window under the last
+    virtual click when it still exists, else the focused control of the real
+    foreground window. Asking the foreground was the old behaviour — but our
+    process is not allowed to call SetForegroundWindow reliably, so Discord
+    could stay in the background while typing went to whoever owned focus."""
+    user = ctypes.windll.user32
+    hwnd = _v_hwnd[0]
+    if hwnd and user.IsWindow(hwnd):
+        _check_target(hwnd)
+        return hwnd
+    hwnd = user.GetForegroundWindow()
+    _check_target(hwnd)
+    info = _GUIThreadInfo(cbSize=ctypes.sizeof(_GUIThreadInfo))
+    thread = user.GetWindowThreadProcessId(hwnd, None)
+    if not user.GetGUIThreadInfo(thread, ctypes.byref(info)) or not info.hwndFocus:
+        raise OSError("Aucun champ actif pour la saisie virtuelle. Clique d’abord dans le champ.")
+    return info.hwndFocus
+
+
 def virtual_type(text: str) -> dict:
     """Type without touching the real keyboard stream: WM_CHAR to the window
-    that received the last virtual click (or the foreground window)."""
+    under the last virtual click (or the focused control of the foreground)."""
     text = str(text or "")
     if not text:
         return {"virtual_typed": 0}
     if len(text) > 12000:
         raise ValueError("text is too long (max 12000 chars)")
-    user = ctypes.windll.user32
-    hwnd = user.GetForegroundWindow()
-    _check_target(hwnd)
-
-    class GUIThreadInfo(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
-                    ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
-                    ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
-                    ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
-                    ("rcCaret", wintypes.RECT)]
-
-    info = GUIThreadInfo(cbSize=ctypes.sizeof(GUIThreadInfo))
-    thread = user.GetWindowThreadProcessId(hwnd, None)
-    if not user.GetGUIThreadInfo(thread, ctypes.byref(info)) or not info.hwndFocus:
-        raise OSError("Aucun champ actif pour la saisie virtuelle. Clique d’abord dans le champ.")
-    hwnd = info.hwndFocus
+    hwnd = _type_target()
     raw = text.replace("\r\n", "\n").replace("\n", "\r").encode("utf-16-le")
     for i in range(0, len(raw), 2):
         _post(hwnd, WM_CHAR, int.from_bytes(raw[i:i + 2], "little"), 0)
     return {"virtual_typed": len(text)}
+
+
+# pyautogui key names -> virtual-key codes for posted WM_KEYDOWN/WM_KEYUP.
+# Keys absent from this map (win, ctrl/alt/shift alone, volume, printscreen)
+# are system-level or meaningless without a real modifier state: the caller
+# falls back to the physical press for them.
+_VKEYS = {
+    "enter": 0x0D, "return": 0x0D, "esc": 0x1B, "escape": 0x1B, "tab": 0x09,
+    "backspace": 0x08, "delete": 0x2E, "space": 0x20, "insert": 0x2D,
+    "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+    **{f"f{i}": 0x70 + i - 1 for i in range(1, 13)},
+}
+_EXT_VK = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x0D}
+
+
+def _key_lparam(vk: int, up: bool) -> int:
+    """lParam for posted key messages: repeat=1, scan code, extended flag,
+    transition bits — some toolkits (Chromium included) read them."""
+    scan = ctypes.windll.user32.MapVirtualKeyW(vk, 0) & 0xFF
+    lp = 1 | (scan << 16) | ((1 if vk in _EXT_VK else 0) << 24)
+    if up:
+        lp |= 0xC0000000
+    return lp
+
+
+def virtual_press_key(key: str):
+    """Posted WM_KEYDOWN/WM_KEYUP to the last-clicked window. Returns None when
+    the key cannot be virtualized (system keys, bare modifiers) — the caller
+    then falls back to the physical press. The thread's own TranslateMessage
+    turns the keydown into WM_CHAR for fields that insert on char."""
+    vk = _VKEYS.get(str(key or "").lower().strip())
+    if vk is None:
+        return None
+    hwnd = _type_target()
+    _post(hwnd, WM_KEYDOWN, vk, _key_lparam(vk, False))
+    _post(hwnd, WM_KEYUP, vk, _key_lparam(vk, True))
+    return {"virtual_pressed": str(key).lower().strip()}
+
+
+def transient_type(text: str) -> dict:
+    """Physical fallback when a field swallows virtual typing (Electron apps
+    are famous for it): one discreet real click at the virtual cursor position
+    to take focus, then the Unicode paste — the same policy as transient_click."""
+    x, y = _virtual_xy()
+    transient_click(x, y)
+    result = type_text(text)
+    result["transient"] = True
+    return result
 
 
 # ------------------------------------------------------- PyAutoGUI (classic)

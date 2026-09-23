@@ -133,6 +133,98 @@ class ModesTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             input_control.virtual_mouse_click()
 
+    def test_virtual_type_goes_to_the_last_clicked_window(self):
+        """Typing used to ask GetForegroundWindow — but a background process
+        cannot reliably set it, so the text went to whatever owned focus. The
+        chars must go to the window under the last virtual click instead."""
+        input_control.reset_virtual_input()
+        posts = []
+        with patch.object(input_control, "_point_target", return_value=(456, 10, 20)), \
+             patch.object(input_control, "_focus_like_a_click"), \
+             patch.object(input_control, "_check_target"), \
+             patch.object(input_control.pyautogui, "failSafeCheck"), \
+             patch.object(input_control.ctypes.windll.user32, "IsWindow", return_value=1), \
+             patch.object(input_control.ctypes.windll.user32, "PostMessageW",
+                          side_effect=lambda h, m, w, l: posts.append((h, m, w)) or 1):
+            input_control.virtual_mouse_click(100, 200)
+            posts.clear()
+            input_control.virtual_type("LESGAZO")
+        self.assertTrue(posts)
+        self.assertTrue(all(h == 456 for h, _m, _w in posts))
+        self.assertEqual([w for _h, m, w in posts if m == input_control.WM_CHAR],
+                         [ord(c) for c in "LESGAZO"])
+
+    def test_virtual_press_key_reaches_the_clicked_window(self):
+        input_control.reset_virtual_input()
+        posts = []
+        with patch.object(input_control, "_point_target", return_value=(456, 10, 20)), \
+             patch.object(input_control, "_focus_like_a_click"), \
+             patch.object(input_control, "_check_target"), \
+             patch.object(input_control.pyautogui, "failSafeCheck"), \
+             patch.object(input_control.ctypes.windll.user32, "IsWindow", return_value=1), \
+             patch.object(input_control.ctypes.windll.user32, "MapVirtualKeyW", return_value=28), \
+             patch.object(input_control.ctypes.windll.user32, "PostMessageW",
+                          side_effect=lambda h, m, w, l: posts.append((h, m, w)) or 1):
+            input_control.virtual_mouse_click(100, 200)
+            posts.clear()
+            res = input_control.virtual_press_key("enter")
+            system = input_control.virtual_press_key("win")
+        self.assertEqual(res, {"virtual_pressed": "enter"})
+        self.assertEqual([(h, m, w) for h, m, w in posts],
+                         [(456, input_control.WM_KEYDOWN, 0x0D),
+                          (456, input_control.WM_KEYUP, 0x0D)])
+        self.assertIsNone(system)   # system keys keep the physical path
+        input_control.reset_virtual_input()
+
+    def test_swallowed_typing_breaks_the_batch_before_enter(self):
+        """A field that ignores the keystrokes must not see an enter pressed
+        blindly right after: the failed typing stops the batch."""
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=2, step_delay=0, memory_enabled=False)
+        reply = json.dumps({"actions": [{"name": "type_text", "args": {"text": "LESGAZO"}},
+                                         {"name": "press_key", "args": {"key": "enter"}}]})
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", return_value=(reply, "gemini")), \
+             patch.object(agent.display, "screen_fingerprint", return_value=(0,) * 144), \
+             patch.object(input_control, "virtual_type", return_value={"virtual_typed": 7}), \
+             patch.object(input_control, "transient_type",
+                          return_value={"typed": 7, "transient": True}) as tt, \
+             patch.object(input_control, "virtual_press_key") as vk, \
+             patch.object(input_control, "mouse_up"):
+            result = run.run()
+        vk.assert_not_called()
+        self.assertEqual(tt.call_count, 2)      # one discreet retry per attempt
+        self.assertFalse(result["ok"])
+
+    def test_confirmed_typing_lets_the_batch_continue(self):
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=2, step_delay=0, memory_enabled=False)
+        replies = [
+            (json.dumps({"actions": [{"name": "type_text", "args": {"text": "LESGAZO"}},
+                                      {"name": "press_key", "args": {"key": "enter"}}]}), "gemini"),
+            (json.dumps({"done": True, "summary": "sent"}), "gemini"),
+        ]
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent.display, "screen_fingerprint",
+                          side_effect=[(0,) * 144, (9,) * 144]), \
+             patch.object(input_control, "virtual_type", return_value={"virtual_typed": 7}) as vt, \
+             patch.object(input_control, "virtual_press_key",
+                          return_value={"virtual_pressed": "enter"}) as vk, \
+             patch.object(input_control, "transient_type") as tt, \
+             patch.object(input_control, "mouse_up"):
+            result = run.run()
+        vt.assert_called_once_with("LESGAZO")
+        vk.assert_called_once_with("enter")
+        tt.assert_not_called()
+        self.assertEqual(result["outcome"], "done")
+
+    def test_prompt_teaches_spelled_names_and_type_verification(self):
+        self.assertIn("L-E-S-G-A-Z-O", agent.SYSTEM_PROMPT)
+        self.assertIn("next screenshot MUST show the text", agent.SYSTEM_PROMPT)
+
     def test_scroll_coordinates_are_scaled_and_bounded(self):
         run = agent.AgentRun("goal", "gemini")
         run.scale = 1.5
@@ -174,7 +266,8 @@ class ModesTests(unittest.TestCase):
         with patch.object(run, "_shot", return_value="IMG"), \
              patch.object(run, "_windows_text", return_value=""), \
              patch.object(agent, "chat_with_fallback", return_value=(reply, "gemini")), \
-             patch.object(agent, "_virtual_action", side_effect=OSError("input rejected")), \
+             patch.object(agent.display, "screen_fingerprint", return_value=(0,) * 144), \
+             patch.object(input_control, "virtual_type", side_effect=OSError("input rejected")), \
              patch.object(agent, "execute_action") as physical:
             result = run.run()
         physical.assert_not_called()

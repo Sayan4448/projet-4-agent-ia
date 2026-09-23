@@ -20,6 +20,19 @@
 - **Mesures de performance intégrées** : chaque étape enregistre dans le
   journal et l'historique le temps de capture, d'appel IA et d'actions —
   les lenteurs deviennent mesurables au lieu d'être devinées.
+- **Frappe réellement livrée à la fenêtre cliquée** : la saisie virtuelle
+  ciblait la fenêtre « au premier plan » — or Windows refuse souvent à un
+  processus en arrière-plan de changer ce premier plan, donc le texte partait
+  dans le mauvais champ ou nulle part (le bug « il n'écrit pas »). Texte et
+  touches vont désormais à la fenêtre du dernier clic virtuel ; les touches
+  système (Win, volume…) gardent le chemin physique.
+- **Frappe vérifiée, pas aveugle** : une empreinte d'écran avant/après chaque
+  saisie détecte les champs qui avalent les caractères (Discord/Electron) —
+  un essai physique discret suit si activé, sinon l'échec est honnête et le
+  lot d'actions s'arrête au lieu d'enchaîner Entrée dans le vide.
+- **Noms épelés compris** : quand l'utilisateur dicte « L-E-S-G-A-Z-O »,
+  l'agent tape le mot assemblé (LESGAZO / la forme visible à l'écran) au lieu
+  des tirets littéraux.
 
 ## 1.9.6
 

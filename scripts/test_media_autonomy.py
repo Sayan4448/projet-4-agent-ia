@@ -85,6 +85,7 @@ class MediaAutonomyTests(unittest.TestCase):
              patch.object(run, "_windows_text", return_value=""), \
              patch.object(run, "_autonomous_wait") as idle, \
              patch.object(agent, "chat_with_fallback", side_effect=replies) as call, \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}), \
              patch.object(agent, "execute_action", return_value={"ok": True}):
             result = run.run()
         self.assertEqual(call.call_count, 2)
@@ -119,6 +120,7 @@ class MediaAutonomyTests(unittest.TestCase):
              patch.object(display, "interesting_windows", return_value=[]), \
              patch.object(display, "screen_fingerprint", return_value=tuple([255] * 144)), \
              patch.object(agent, "chat_with_fallback", side_effect=replies) as chat, \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}), \
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(run._stop, "wait", return_value=False):
             result = run.run()
@@ -174,6 +176,7 @@ class MediaAutonomyTests(unittest.TestCase):
              patch.object(display, "screen_info",
                           return_value={"primary": {"width_px": 1920, "height_px": 1080}}), \
              patch.object(agent, "chat_with_fallback", return_value=(answer, "gemini")), \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}), \
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(agent.input_control, "mouse_move") as move:
             run.run()
@@ -186,7 +189,8 @@ class MediaAutonomyTests(unittest.TestCase):
                  patch.object(display, "interesting_windows", return_value=[]), \
                  patch.object(agent, "chat_with_fallback",
                               return_value=(json.dumps({"actions": [{"name": "press_key", "args": {"key": "tab"}}]}), "gemini")) as chat, \
-                 patch.object(agent, "execute_action", return_value={"ok": True}):
+                 patch.object(agent, "_virtual_action", return_value={"ok": True}), \
+             patch.object(agent, "execute_action", return_value={"ok": True}):
                 run.run()
             self.assertEqual(chat.call_args.kwargs["max_tokens"], expected)
 
@@ -252,6 +256,7 @@ class MediaAutonomyTests(unittest.TestCase):
                           side_effect=lambda **kw: (image(next(colors)), 1.0)), \
              patch.object(display, "interesting_windows", return_value=[]), \
              patch.object(agent, "chat_with_fallback", side_effect=replies) as chat, \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}), \
              patch.object(agent, "execute_action", return_value={"ok": True}):
             result = run.run()
         self.assertEqual(result["outcome"], "done")
@@ -325,6 +330,7 @@ class MediaAutonomyTests(unittest.TestCase):
              patch.object(display, "interesting_windows", return_value=[]), \
              patch.object(display, "screen_fingerprint", return_value=tuple([255] * 144)), \
              patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}), \
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(run._stop, "wait", return_value=False):
             result = run.run()

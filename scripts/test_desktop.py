@@ -39,34 +39,37 @@ class DesktopTests(unittest.TestCase):
              patch.object(display, "interesting_windows", return_value=[]), \
              patch.object(agent, "chat_with_fallback",
                           side_effect=[(json.dumps(r), "gemini") for r in replies]), \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}) as virtual, \
              patch.object(agent, "execute_action", return_value={"ok": True}) as execute:
             result = run.run()
-        return result, events, execute
+        return result, events, execute, virtual
 
     def test_successful_actions_and_individual_captures_are_recorded(self):
-        res, events, execute = self.run_replies([
+        res, events, execute, virtual = self.run_replies([
             {"actions": [{"name": "press_key", "args": {"key": "enter"}},
                          {"name": "press_key", "args": {"key": "tab"}}]},
             {"done": True, "summary": "ok"},
         ], screenshot_each_action=True)
         self.assertTrue(res["ok"])
         self.assertEqual(len(res["steps"][0]["actions"]), 2)
-        self.assertEqual(execute.call_count, 2)
+        self.assertEqual(virtual.call_count, 2)   # press_key rides the virtual path
+        execute.assert_not_called()
         self.assertEqual([e[1]["sub"] for e in events if e[0] == "screenshot" and "sub" in e[1]], [1, 2])
 
     def test_malformed_action_list_recovers_without_crashing(self):
-        res, _, execute = self.run_replies([
+        res, _, execute, virtual = self.run_replies([
             {"actions": ["bad", None, {"name": "click", "args": "wrong"}]},
             {"actions": [{"name": "press_key", "args": {"key": "enter"}}]},
             {"done": True},
         ])
         self.assertTrue(res["ok"])
-        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(virtual.call_count, 1)
 
     def test_invalid_json_shape_has_a_clear_error(self):
-        res, events, execute = self.run_replies([[1, 2]])
+        res, events, execute, virtual = self.run_replies([[1, 2]])
         self.assertEqual(res["outcome"], "error")
         self.assertFalse(execute.called)
+        self.assertFalse(virtual.called)
         self.assertTrue(any("Model did not return JSON" in e[1].get("text", "") for e in events))
 
     def test_failed_action_cannot_justify_success(self):

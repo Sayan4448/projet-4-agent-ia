@@ -847,7 +847,9 @@ class TestReliabilityFixes(unittest.TestCase):
         ])
         with patch.object(agent, "chat_with_fallback", side_effect=lambda *a, **k: (next(replies), "gemini")), \
              patch.object(agent.AgentRun, "_shot", return_value="QUJD"), \
-             patch.object(input_control, "type_text", return_value={"ok": True}):
+             patch.object(agent.display, "screen_fingerprint",
+                          side_effect=[(0,) * 144, (9,) * 144]), \
+             patch.object(input_control, "type_text", return_value={"typed": 2}):
             run = agent.AgentRun("test", "gemini", max_steps=4, step_delay=0,
                                  virtual_input=False,
                                  emit=lambda ev, **kw: events.append((ev, kw)))

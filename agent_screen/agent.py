@@ -110,6 +110,12 @@ SYSTEM_PROMPT = (
     "cancel, or click its button) or the window may not be focused (focus_window first).\n"
     "- NEVER set done=true unless a previous step really executed an action that achieved the "
     "goal. Claiming success without acting is forbidden and will be rejected.\n"
+    "- After type_text, the next screenshot MUST show the text inside the field. "
+    "If the field stayed empty, click its centre and retype — never press enter "
+    "on a field whose content you have not verified.\n"
+    "- When the user SPELLS a name letter by letter (L-E-S-G-A-Z-O), the text to "
+    "type is the assembled word: 'LESGAZO' never contains the hyphens. Keep the "
+    "spacing of the name as it appears on screen (e.g. 'Les Gazos').\n"
     "- If the same approach fails twice, do NOT give up: switch approach (re-aim at the "
     "centre of the row, scroll to reveal the target, use a keyboard shortcut, "
     "open_app/focus_window, run_terminal_command) and keep working until the goal is "
@@ -185,7 +191,7 @@ LAUNCH_ACTIONS = {"open_app", "focus_window", "open_url", "search_web"}
 # real cursor ("a second mouse"). Routed through input_control.virtual_* when
 # virtual input is enabled; game mode and browser mode never use them.
 VIRTUAL_ACTIONS = {"mouse_move", "mouse_click", "mouse_double_click", "mouse_drag",
-                   "mouse_scroll", "mouse_hscroll", "type_text"}
+                   "mouse_scroll", "mouse_hscroll", "type_text", "press_key"}
 
 
 def _virtual_action(name: str, args: dict) -> dict:
@@ -206,6 +212,11 @@ def _virtual_action(name: str, args: dict) -> dict:
         return ic.virtual_mouse_hscroll(args.get("amount", 0), args.get("y"), args.get("x"))
     if name == "type_text":
         return ic.virtual_type(args.get("text", ""))
+    if name == "press_key":
+        res = ic.virtual_press_key(args.get("key", ""))
+        # system keys (win, volume...) and bare modifiers cannot be posted:
+        # they keep the physical path
+        return res if res is not None else ic.press_key(args.get("key", ""))
     raise ValueError(f"Unknown virtual action '{name}'")
 
 def _window_origin(title: str):
@@ -552,6 +563,49 @@ class AgentRun:
         b64, self.scale = capture[:2]
         self.geometry = capture[2] if len(capture) > 2 else None
         return b64
+
+    def _type_verified(self, text: str, step_i: int) -> dict:
+        """type_text with a "did it land?" check: fingerprint the screen just
+        before and just after the keystrokes. A field that swallowed every
+        char (Electron apps ignore posted WM_CHAR notoriously) leaves the
+        screen identical — the run used to learn nothing and would then press
+        enter into the void. One discreet physical retry is allowed when the
+        virtual keystrokes were ignored; an unchanged screen after that is an
+        honest failure that breaks the batch instead of chaining enter blindly.
+        """
+        if self.stopped:
+            return {"ok": False, "error": "stopped"}
+        window = self.window_title if self.window_mode else None
+        fp_pre = display.screen_fingerprint(window)
+        virtual = self.virtual_input and not self.game_mode
+        result = (input_control.virtual_type(text) if virtual
+                  else input_control.type_text(text))
+        typed = result.get("virtual_typed") or result.get("typed") or 0
+        if not typed:
+            return result
+        self._stop.wait(0.08)   # let the field render the new text
+        fp_post = display.screen_fingerprint(window)
+        if _fingerprint_distance(fp_pre, fp_post) >= 6:
+            return result
+        if virtual and self.virtual_fallback:
+            self.history.append({"step": step_i, "summary": (
+                "Virtual typing had no visible effect: the field probably ignores "
+                "posted chars — retrying once with a discreet physical paste.")})
+            self.emit("thought", step=step_i, text=(
+                "⚠ Frappe virtuelle ignorée — un essai physique discret."
+                if self.lang == "fr" else
+                "⚠ Virtual typing ignored — one discreet physical retry."))
+            try:
+                retry = input_control.transient_type(text)
+                fp_post = display.screen_fingerprint(window)
+                if _fingerprint_distance(fp_pre, fp_post) >= 6:
+                    return retry
+            except Exception:  # noqa: BLE001 - fall through to honest failure
+                pass
+        return {"ok": False, "error": (
+            "La frappe n'a produit aucun changement visible : le champ l'a peut-être "
+            "ignorée. Clique au centre du champ puis retape, ou vérifie que le focus "
+            "est bien dans le champ avant d'écrire.")}
 
     def _history_text(self) -> str:
         if not self.history:
@@ -1018,6 +1072,12 @@ class AgentRun:
                                           file=result["file"], seconds=result["seconds"])
                                 self.history.append({"step": i, "summary":
                                     f"Recorded {result['seconds']}s clip to {result['file']}."})
+                        elif name == "type_text" and not self.browser:
+                            # verified typing: a screen fingerprint right before
+                            # and after proves the field really received the
+                            # text — Electron apps can swallow every WM_CHAR
+                            # while the post reports nothing
+                            result = self._type_verified(str(args.get("text", "")), i)
                         elif (self.virtual_input and not self.game_mode and not self.browser
                               and name in VIRTUAL_ACTIONS):
                             # "second mouse": delivered to the target window without
