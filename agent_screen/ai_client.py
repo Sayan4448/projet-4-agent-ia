@@ -84,7 +84,9 @@ def _explain_http(provider: str, status: int, text: str) -> str:
         return (f"Limite de requêtes/quota atteinte chez {name} (429). "
                 "Attends un peu, ou utilise un autre fournisseur.")
     if status >= 500:
-        return f"Les serveurs {name} ont un problème ({status}). Réessaie dans un instant."
+        return (f"Les serveurs {name} sont surchargés ou en panne ({status}). "
+                "C'est temporaire — l'agent réessaie déjà automatiquement ; "
+                "si ça persiste, choisis un autre modèle dans le sélecteur.")
     detail = first([MSG_RE, ERR_RE])
     return f"Erreur {name} ({status}): {detail or t[:200]}"
 
@@ -141,11 +143,20 @@ def _heal_deprecated_model(api_key: str, failed_model: str, error_text: str):
     return None
 
 
-def _post(url: str, headers: dict, body: dict) -> requests.Response:
-    try:
-        return requests.post(url, headers=headers, data=json.dumps(body), timeout=TIMEOUT)
-    except requests.RequestException as e:
-        raise _network_error(e) from e
+def _post(url: str, headers: dict, body: dict, retry_5xx: int = 2) -> requests.Response:
+    """POST with automatic retry on transient 5xx (Gemini free tier often
+    answers 503 'model is overloaded' — retrying a few seconds later works)."""
+    delay = 3.0
+    for attempt in range(retry_5xx + 1):
+        try:
+            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=TIMEOUT)
+        except requests.RequestException as e:
+            raise _network_error(e) from e
+        if r.status_code < 500 or attempt >= retry_5xx:
+            return r
+        time.sleep(delay)
+        delay *= 2
+    return r
 
 
 def _get(url: str, headers: dict) -> requests.Response:
