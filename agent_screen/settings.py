@@ -59,6 +59,8 @@ DEFAULTS = {
     "memory_enabled": True,     # learn durable facts about the user
     "chat_font_size": 11,
     "accent": "violet",         # interface accent colour
+    "ui_style": "simple",       # 'simple' (light, rounded) or 'classique' (dense dark)
+    "ai_timeout": 45,           # seconds per AI request before giving up
 }
 
 
@@ -74,6 +76,8 @@ def _merge_modes(cfg, source):
         cfg["agent_profile"] = source["agent_profile"]
     if source.get("hud_mode") in ("auto", "always", "hidden"):
         cfg["hud_mode"] = source["hud_mode"]
+    if source.get("ui_style") in ("simple", "classique"):
+        cfg["ui_style"] = source["ui_style"]
     if source.get("accent") in ("violet", "blue", "green", "rose", "orange"):
         cfg["accent"] = source["accent"]
     if "actions_per_capture" in source:
@@ -88,7 +92,8 @@ def _merge_modes(cfg, source):
                                     ("autonomous_minutes", 60, 5, 240),
                                     ("autonomous_max_calls", 20, 2, 80),
                                     ("autonomous_min_interval", 30, 15, 300),
-                                    ("cursor_linger", 5, 0, 30)):
+                                    ("cursor_linger", 5, 0, 30),
+                                    ("ai_timeout", 45, 10, 180)):
         if key in source:
             try:
                 cfg[key] = max(low, min(high, int(source[key])))

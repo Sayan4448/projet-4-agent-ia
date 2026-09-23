@@ -640,7 +640,9 @@ class AgentRun:
             from .browser_mode import BrowserSession
             self.browser = BrowserSession()
             self.browser.start()
+        shot_t0 = time.monotonic()
         b64 = self._shot()
+        self._shot_ms = int((time.monotonic() - shot_t0) * 1000)
         self.emit("status", key="shot_ask")
         context = (f"Goal: {self.goal}.{self._profile_text()} All x/y action coordinates MUST be NORMALIZED "
                    "integers from 0 to 1000 (0=left/top edge, 1000=right/bottom edge), exactly as "
@@ -723,11 +725,15 @@ class AgentRun:
 
                 self.current_step = i
                 step = {"step": i, "thought": "", "actions": [], "done": False, "summary": ""}
+                # ms per phase: shot_ms is the capture taken for THIS step
+                # (measured at the end of the previous one or before the loop)
+                step["timings"] = {"shot_ms": getattr(self, "_shot_ms", 0)}
                 try:
                     self._calls += 1
                     request_media = b64
                     self.emit("thinking", step=i)
                     remembered = memory.prompt_block() if self.memory_enabled else ""
+                    api_t0 = time.monotonic()
                     reply, eff_prov = chat_with_fallback(
                         self.effective_provider,
                         prompt=f"{context}{remembered}{self._windows_text()}{self._history_text()}{extra}\n\n"
@@ -740,6 +746,7 @@ class AgentRun:
                         cancel_event=self._stop,
                         max_tokens=900 if self.eco_mode else 1600,
                     )
+                    step["timings"]["api_ms"] = int((time.monotonic() - api_t0) * 1000)
                     if isinstance(request_media, list) and request_media:
                         b64 = request_media[-1]
                     self.effective_provider = eff_prov
@@ -881,6 +888,7 @@ class AgentRun:
                     continue
 
                 summaries = []
+                act_t0 = time.monotonic()
                 for j, act in enumerate(actions, 1):
                     if self.stopped:
                         outcome = "stopped"
@@ -1068,6 +1076,7 @@ class AgentRun:
                 # delivers clicks to the target window and the real cursor stays
                 # exactly where the user left it
 
+                step["timings"]["act_ms"] = int((time.monotonic() - act_t0) * 1000)
                 step["summary"] = "; ".join(summaries)[:400]
                 self.history.append({"step": i, "summary": step["summary"]})
                 steps.append(step)
@@ -1076,13 +1085,15 @@ class AgentRun:
                     self.emit("status", key="stopped")
                     break
 
-                self.emit("status", key="step_done", i=i)
+                self.emit("status", key="step_done", i=i, timings=dict(step["timings"]))
                 delay = max(self.step_delay, self.autonomous_min_interval if self.autonomous_mode else 0)
                 if delay > 0 and self._stop.wait(delay):
                     outcome = "stopped"
                     break
+                shot_t0 = time.monotonic()
                 if not isinstance(b64, list):
                     b64 = self._shot()
+                self._shot_ms = int((time.monotonic() - shot_t0) * 1000)
                 self.emit("screenshot", step=i, image=b64[-1] if isinstance(b64, list) else b64)
                 # did this step's actions visibly change anything? feeds the
                 # anti-spam guard so an ineffective identical click gets refused
@@ -1119,9 +1130,10 @@ class AgentRun:
             self.emit("status", key="max_steps_reached")
 
         # ALWAYS notify completion so UI resets its buttons and state!
-        self.emit("finished", outcome=outcome, ok=(outcome == "done"))
+        total_s = round(time.monotonic() - self._started_at, 1)
+        self.emit("finished", outcome=outcome, ok=(outcome == "done"), seconds=total_s)
         return {"ok": outcome == "done", "outcome": outcome, "steps": steps,
-                "ai_calls": self._calls}
+                "ai_calls": self._calls, "seconds": total_s}
 
     def run(self) -> dict:
         """Public entry point. Raises RunBusy if another run already owns the

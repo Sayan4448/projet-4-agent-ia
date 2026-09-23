@@ -1,5 +1,26 @@
 # Historique
 
+## 2.0.0
+
+- **Nouveau style « Simple » par défaut** : interface claire et arrondie —
+  boutons pilule, champ d'objectif et champ de chat arrondis, cartes d'activité
+  à coins arrondis, palette claire. Les réglages fins (profil, éco, autonome,
+  limites, capture par fenêtre, journal de session) sont repliés sous
+  « Options avancées » : rien n'est supprimé, tout reste modifiable.
+- **Bascule d'interface dans les Paramètres** : « Style d'interface » permet de
+  revenir à la présentation « Complète » (sombre et dense). Le changement
+  redémarre l'interface proprement.
+- **Fiabilité de l'affichage** : un événement défectueux ne peut plus figer
+  l'interface pendant une mission — chaque message est isolé et la boucle
+  d'événements se replanifie toujours (le bouton restait mort auparavant).
+- **Masquage instantané** : quand la fenêtre est déjà réduite et le panneau
+  déjà caché, l'agent n'attend plus ~180 ms avant chaque action/capture.
+- **Timeout IA configurable** (10–180 s, défaut 45 s au lieu de 90 s figé) :
+  une requête qui pend ne peut plus immobiliser une étape pendant 4 minutes.
+- **Mesures de performance intégrées** : chaque étape enregistre dans le
+  journal et l'historique le temps de capture, d'appel IA et d'actions —
+  les lenteurs deviennent mesurables au lieu d'être devinées.
+
 ## 1.9.6
 
 - Coordonnées normalisées 0–1000 pour toutes les actions souris : les modèles

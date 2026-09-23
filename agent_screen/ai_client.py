@@ -143,13 +143,23 @@ def _heal_deprecated_model(api_key: str, failed_model: str, error_text: str):
     return None
 
 
+def _timeout() -> int:
+    """Per-request network timeout in seconds — adjustable in Settings
+    (ai_timeout). Read lazily so a saved value applies to the next call."""
+    try:
+        from .settings import load
+        return max(10, min(180, int(load().get("ai_timeout", TIMEOUT))))
+    except Exception:  # noqa: BLE001
+        return TIMEOUT
+
+
 def _post(url: str, headers: dict, body: dict, retry_5xx: int = 2) -> requests.Response:
     """POST with automatic retry on transient 5xx (Gemini free tier often
     answers 503 'model is overloaded' — retrying a few seconds later works)."""
     delay = 3.0
     for attempt in range(retry_5xx + 1):
         try:
-            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=TIMEOUT)
+            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=_timeout())
         except requests.RequestException as e:
             raise _network_error(e) from e
         if r.status_code < 500 or attempt >= retry_5xx:
@@ -161,7 +171,7 @@ def _post(url: str, headers: dict, body: dict, retry_5xx: int = 2) -> requests.R
 
 def _get(url: str, headers: dict) -> requests.Response:
     try:
-        return requests.get(url, headers=headers, timeout=TIMEOUT)
+        return requests.get(url, headers=headers, timeout=_timeout())
     except requests.RequestException as e:
         raise _network_error(e) from e
 
