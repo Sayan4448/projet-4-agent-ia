@@ -21,7 +21,7 @@ MAX_EVENTS = 500
 MAX_TEXT = 4000
 
 KINDS = ("goal", "thought", "action", "action_error", "message", "guidance",
-         "banner", "fallback", "video", "done", "error", "note")
+         "banner", "fallback", "video", "done", "error", "note", "result")
 
 
 def sessions_file():
@@ -45,7 +45,8 @@ def _clean_session(item):
     raw_events = item.get("events", [])
     if not isinstance(raw_events, list):
         raw_events = []
-    events = [e for e in (_clean_event(e) for e in raw_events[:MAX_EVENTS]) if e]
+    kept = raw_events if len(raw_events) <= MAX_EVENTS else [raw_events[0], *raw_events[-(MAX_EVENTS - 1):]]
+    events = [e for e in (_clean_event(e) for e in kept) if e]
     try:
         started = float(item.get("started", 0))
     except (TypeError, ValueError):
@@ -66,7 +67,23 @@ def load_all():
         return []
     items = [_clean_session(x) for x in raw] if isinstance(raw, list) else []
     items = [x for x in items if x]
-    return sorted(items, key=lambda x: -x["started"])[:MAX_SESSIONS]
+    return sorted(items, key=lambda x: -x["started"])
+
+
+def history_items(query="", kind="Tous"):
+    from . import conversations
+    items = [{**s, "kind": "Agent"} for s in load_all()] if kind != "Chat" else []
+    if kind != "Agent":
+        for c in conversations.load_all():
+            items.append({"id": c["id"], "kind": "Chat", "goal": c["title"],
+                          "started": c["updated"], "outcome": "chat", "mode": "Chat", "chat": c,
+                          "events": [{"kind": "guidance" if m["role"] == "user" else "message",
+                                      "step": 0, "text": m["text"]} for m in c["messages"]]})
+    query = str(query).strip().casefold()
+    if query:
+        items = [s for s in items if query in
+                 (s["goal"] + " " + " ".join(e["text"] for e in s["events"])).casefold()]
+    return sorted(items, key=lambda s: -s["started"])
 
 
 def _write(items):
@@ -94,7 +111,7 @@ def save_session(session):
         items = [x for x in load_all() if x["id"] != clean["id"]]
         items.append(clean)
         items.sort(key=lambda x: -x["started"])
-        _write(items[:MAX_SESSIONS])
+        _write(items)
     return clean
 
 

@@ -1,5 +1,30 @@
 # Historique
 
+## 1.9.5
+
+- Souris virtuelle Windows par défaut : événements envoyés à la fenêtre cible sans
+  déplacer le pointeur physique ni le garer dans un coin. Double-clic, molette,
+  coordonnées multi-écrans et saisie Unicode corrigés. Aucun repli automatique vers
+  un clic physique si une application ignore les messages Windows. Le clavier et
+  le focus restent partagés ; le mode jeu utilise toujours les entrées physiques.
+- Isolation du navigateur rétablie : ses actions ne passent jamais par la souris virtuelle Windows.
+- Capture du bureau entier par défaut, limite stricte de 1 à 3 actions ; nouvelle
+  observation après un clic ou une navigation, et arrêt du lot après une erreur.
+  Les clics identiques sans effet ne sont plus réautorisés après deux refus.
+- Discussion réduite pendant les missions et bandeau masqué avant captures/actions.
+  Mode discret par défaut, affichage pendant l’analyse optionnel. Arrêt global : Ctrl + Maj + F12.
+- L’agent autonome poursuit une tâche active sans attendre un changement extérieur
+  de l’écran. Les limites de temps et d’appels restent appliquées ; un blocage n’est
+  pas annoncé comme un succès. Correction de l’échantillonnage local de l’écran.
+- Historique commun Chat/Agent avec recherche, filtres, résultats des actions et
+  sauvegarde des événements pendant la mission. Les longues discussions et les
+  réponses arrivant après une nouvelle discussion sont conservées.
+- Mémoire locale de préférences explicites (« retiens que… », « je préfère… »,
+  « j’utilise… »), sans requête IA supplémentaire : consultation, ajout, suppression
+  et désactivation dans les paramètres. La mémoire activée est envoyée au fournisseur
+  choisi avec le contexte ; désactivée, elle n’est ni injectée ni enrichie automatiquement.
+- Couleur d’accent et taille du texte Chat réglables, espacement des échanges amélioré.
+
 ## 1.9.1
 
 - Enregistrement vidéo réel (`record_video`) : clip MP4 H.264 de 1 à 30 s,

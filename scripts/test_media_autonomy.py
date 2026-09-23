@@ -70,6 +70,27 @@ class MediaAutonomyTests(unittest.TestCase):
         parts = post.call_args.args[2]["contents"][0]["parts"]
         self.assertEqual([p["inline_data"]["data"] for p in parts[:-1]], ["first", "second"])
 
+    def test_screen_fingerprint_samples_real_image_without_encoding(self):
+        with patch.object(display, "_capture_screen", return_value=Image.new("RGB", (80, 60), "white")):
+            pixels = display.screen_fingerprint()
+        self.assertEqual(len(pixels), 144)
+        self.assertEqual(set(pixels), {255})
+
+    def test_active_autonomous_task_does_not_wait_for_external_change(self):
+        run = agent.AgentRun("goal", "gemini", autonomous_mode=True, autonomous_max_calls=2,
+                             step_delay=0, memory_enabled=False)
+        run.autonomous_min_interval = 0
+        replies = [(json.dumps({"actions": [{"name": "press_key", "args": {"key": "tab"}}]}), "gemini")] * 2
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(run, "_autonomous_wait") as idle, \
+             patch.object(agent, "chat_with_fallback", side_effect=replies) as call, \
+             patch.object(agent, "execute_action", return_value={"ok": True}):
+            result = run.run()
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(result["outcome"], "autonomous_limit")
+        idle.assert_not_called()
+
     def test_autonomous_wait_is_local_until_change(self):
         """The watch uses a cheap screen sample and takes a full model capture
         only when it wakes — never one screenshot every three seconds."""
@@ -156,9 +177,7 @@ class MediaAutonomyTests(unittest.TestCase):
              patch.object(agent, "execute_action", return_value={"ok": True}), \
              patch.object(agent.input_control, "mouse_move") as move:
             run.run()
-        move.assert_called()
-        _x, y = move.call_args.args
-        self.assertLessEqual(y, 1080 - 60)   # above the taskbar, not the corner
+        move.assert_not_called()   # above the taskbar, not the corner
 
     def test_agent_decision_tokens_are_bounded(self):
         for eco, expected in ((True, 900), (False, 1600)):

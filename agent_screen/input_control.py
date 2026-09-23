@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import time
 import urllib.parse
+from ctypes import wintypes
 
 import pyautogui
 
@@ -147,6 +148,275 @@ def mouse_move_rel(dx: int, dy: int) -> dict:
     return {"moved_rel": [dx, dy]}
 
 
+# ------------------------------------------- virtual input ("a second mouse")
+# PostMessage-based input: clicks/scrolls/text are delivered straight to the
+# window under the target point, so the user's real cursor never moves and is
+# never parked anywhere. This is what makes the agent feel like it uses its
+# own mouse instead of hijacking yours.
+WM_MOUSEMOVE = 0x0200
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_LBUTTONDBLCLK = 0x0203
+WM_RBUTTONDOWN = 0x0204
+WM_RBUTTONUP = 0x0205
+WM_RBUTTONDBLCLK = 0x0206
+WM_MBUTTONDOWN = 0x0207
+WM_MBUTTONUP = 0x0208
+WM_MOUSEWHEEL = 0x020A
+WM_MOUSEHWHEEL = 0x020E
+WM_CHAR = 0x0102
+MK_LBUTTON = 0x0001
+MK_RBUTTON = 0x0002
+MK_MBUTTON = 0x0010
+WHEEL_DELTA = 120
+GA_ROOT = 2
+_CWP_SKIP = 0x0001 | 0x0004  # skip invisible + transparent children
+
+_v_pos = [None, None]    # where the virtual cursor currently is
+
+
+if os.name == "nt":
+    for _name, _args, _result in (
+        ("WindowFromPoint", [wintypes.POINT], wintypes.HWND),
+        ("ChildWindowFromPointEx", [wintypes.HWND, wintypes.POINT, wintypes.UINT], wintypes.HWND),
+        ("GetAncestor", [wintypes.HWND, wintypes.UINT], wintypes.HWND),
+        ("ScreenToClient", [wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL),
+        ("PostMessageW", [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM], wintypes.BOOL),
+        ("GetForegroundWindow", [], wintypes.HWND),
+        ("SetForegroundWindow", [wintypes.HWND], wintypes.BOOL),
+        ("IsWindow", [wintypes.HWND], wintypes.BOOL),
+        ("GetWindowThreadProcessId", [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD),
+    ):
+        _fn = getattr(ctypes.windll.user32, _name)
+        _fn.argtypes, _fn.restype = _args, _result
+
+
+def reset_virtual_input():
+    _v_pos[:] = [None, None]
+
+
+def virtual_position():
+    return {"x": _v_pos[0], "y": _v_pos[1]}
+
+
+def _virtual_xy(x=None, y=None):
+    if (x is None) != (y is None):
+        raise ValueError("x et y doivent être fournis ensemble.")
+    if x is None:
+        x, y = _v_pos
+    if x is None or y is None:
+        raise ValueError("Indique les coordonnées du curseur virtuel avant cette action.")
+    return int(x), int(y)
+
+
+def _check_target(hwnd):
+    user = ctypes.windll.user32
+    if not hwnd or not user.IsWindow(hwnd):
+        raise OSError("La fenêtre cible a disparu. Reprends une capture.")
+    pid = wintypes.DWORD()
+    user.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value == os.getpid():
+        raise OSError("Action refusée sur l’interface de l’assistant. Masque-la et reprends une capture.")
+
+
+def _lparam(x: int, y: int) -> int:
+    return ((int(y) & 0xFFFF) << 16) | (int(x) & 0xFFFF)
+
+
+def _point_target(x: int, y: int):
+    """(hwnd, client_x, client_y) of the deepest visible window under a point."""
+    if os.name != "nt":
+        return None, 0, 0
+    user32 = ctypes.windll.user32
+    user32.WindowFromPoint.restype = ctypes.c_void_p
+    user32.ChildWindowFromPointEx.restype = ctypes.c_void_p
+    user32.GetAncestor.restype = ctypes.c_void_p
+    pt = wintypes.POINT(int(x), int(y))
+    hwnd = user32.WindowFromPoint(pt)
+    if not hwnd:
+        return None, 0, 0
+    for _ in range(8):  # descend to the real owner of the point
+        cp = wintypes.POINT(int(x), int(y))
+        user32.ScreenToClient(ctypes.c_void_p(hwnd), ctypes.byref(cp))
+        child = user32.ChildWindowFromPointEx(ctypes.c_void_p(hwnd), cp, _CWP_SKIP)
+        if not child or child == hwnd:
+            break
+        hwnd = child
+    cp = wintypes.POINT(int(x), int(y))
+    user32.ScreenToClient(ctypes.c_void_p(hwnd), ctypes.byref(cp))
+    return hwnd, cp.x, cp.y
+
+
+def _post(hwnd, msg, wparam=0, lparam=0) -> bool:
+    _check_target(hwnd)
+    pyautogui.failSafeCheck()
+    if not ctypes.windll.user32.PostMessageW(hwnd, msg, wparam, lparam):
+        raise OSError("Windows a refusé l’entrée virtuelle. Aucun clic physique de secours n’a été effectué.")
+    return True
+
+
+def _focus_like_a_click(hwnd) -> None:
+    """A real click gives focus to the clicked window: do the same without
+    moving the cursor, so typing/keys then reach the right place."""
+    try:
+        root = ctypes.windll.user32.GetAncestor(ctypes.c_void_p(hwnd), GA_ROOT)
+        if root:
+            ctypes.windll.user32.SetForegroundWindow(ctypes.c_void_p(root))
+    except Exception:  # noqa: BLE001 - focus is best effort
+        pass
+
+
+def _button_messages(button: str):
+    b = str(button or "left").lower()
+    if b == "right":
+        return WM_RBUTTONDOWN, WM_RBUTTONUP, WM_RBUTTONDBLCLK, MK_RBUTTON
+    if b == "middle":
+        return WM_MBUTTONDOWN, WM_MBUTTONUP, 0, MK_MBUTTON
+    if b != "left":
+        raise ValueError("button must be left, right or middle")
+    return WM_LBUTTONDOWN, WM_LBUTTONUP, WM_LBUTTONDBLCLK, MK_LBUTTON
+
+
+def virtual_mouse_move(x: int, y: int) -> dict:
+    hwnd, cx, cy = _point_target(x, y)
+    if not hwnd:
+        raise OSError("Aucune fenêtre sous le point visé.")
+    _post(hwnd, WM_MOUSEMOVE, 0, _lparam(cx, cy))
+    _v_pos[0], _v_pos[1] = int(x), int(y)
+    return {"virtual_moved_to": [int(x), int(y)]}
+
+
+def virtual_mouse_click(x=None, y=None, button: str = "left", clicks: int = 1) -> dict:
+    x, y = _virtual_xy(x, y)
+    down, up, dbl, mk = _button_messages(button)
+    clicks = max(1, min(3, int(clicks or 1)))
+    hwnd, cx, cy = _point_target(x, y)
+    if not hwnd:
+        raise OSError("Aucune fenêtre sous le point visé.")
+    lp = _lparam(cx, cy)
+    _focus_like_a_click(hwnd)
+    _post(hwnd, WM_MOUSEMOVE, 0, lp)
+    for i in range(clicks):
+        _post(hwnd, dbl if i == 1 and dbl else down, mk, lp)
+        _post(hwnd, up, 0, lp)
+    _v_pos[0], _v_pos[1] = int(x), int(y)
+    return {"virtual_clicked": [int(x), int(y)], "button": button, "clicks": clicks}
+
+
+def virtual_mouse_double_click(x=None, y=None, button: str = "left") -> dict:
+    return virtual_mouse_click(x, y, button, clicks=2)
+
+
+def virtual_mouse_drag(x: int, y: int, duration: float = 0.4) -> dict:
+    down, up, _dbl, mk = _button_messages("left")
+    sx, sy = _virtual_xy()
+    h0, c0x, c0y = _point_target(sx, sy)
+    if not h0:
+        raise OSError("Aucune fenêtre sous le point visé.")
+    duration = max(0.1, min(3.0, float(duration)))
+    _post(h0, WM_MOUSEMOVE, 0, _lparam(c0x, c0y))
+    _post(h0, down, mk, _lparam(c0x, c0y))
+    steps = max(2, min(60, int(duration * 20)))
+    cp = wintypes.POINT(c0x, c0y)
+    try:
+        for i in range(1, steps + 1):
+            cp = wintypes.POINT(int(sx + (int(x) - sx) * i / steps),
+                               int(sy + (int(y) - sy) * i / steps))
+            if not ctypes.windll.user32.ScreenToClient(h0, ctypes.byref(cp)):
+                raise OSError("Conversion des coordonnées impossible.")
+            _post(h0, WM_MOUSEMOVE, mk, _lparam(cp.x, cp.y))
+            time.sleep(duration / steps)
+    finally:
+        _post(h0, up, 0, _lparam(cp.x, cp.y))
+    _v_pos[0], _v_pos[1] = int(x), int(y)
+    return {"virtual_dragged_to": [int(x), int(y)]}
+
+
+def virtual_mouse_scroll(amount: int, y=None, x=None) -> dict:
+    px, py = _virtual_xy(x, y)
+    hwnd, cx, cy = _point_target(px, py)
+    if not hwnd:
+        raise OSError("Aucune fenêtre sous le point visé.")
+    delta = max(-5, min(5, int(amount))) * WHEEL_DELTA
+    _post(hwnd, WM_MOUSEWHEEL, ((delta & 0xFFFF) << 16), _lparam(px, py))
+    return {"virtual_scrolled": int(amount)}
+
+
+def virtual_mouse_hscroll(amount: int, y=None, x=None) -> dict:
+    px, py = _virtual_xy(x, y)
+    hwnd, cx, cy = _point_target(px, py)
+    if not hwnd:
+        raise OSError("Aucune fenêtre sous le point visé.")
+    delta = max(-5, min(5, int(amount))) * WHEEL_DELTA
+    _post(hwnd, WM_MOUSEHWHEEL, ((delta & 0xFFFF) << 16), _lparam(px, py))
+    return {"virtual_hscrolled": int(amount)}
+
+
+def transient_click(x: int, y: int, button: str = "left") -> dict:
+    """Physical fallback when a window ignores posted mouse messages.
+
+    Some toolkits (Tk, a few games) drop PostMessage clicks entirely. This is
+    the only physical path allowed with virtual input on: the real cursor is
+    moved to the target, the button is injected, and the cursor is restored
+    immediately — a few milliseconds, no parking, no visible travel.
+    """
+    if os.name != "nt":
+        return mouse_click(x, y, button)
+    x, y = int(x), int(y)
+    b = str(button or "left").lower()
+    if b not in ("left", "right"):
+        raise ValueError("button must be left or right")
+    user = ctypes.windll.user32
+    old = wintypes.POINT()
+    user.GetCursorPos(ctypes.byref(old))
+    flags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP if b == "left" else \
+        MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP
+    try:
+        user.SetCursorPos(x, y)
+        time.sleep(0.03)
+        for flag in (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP) if b == "left" else \
+                (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP):
+            inp = _INPUT()
+            inp.type = INPUT_MOUSE
+            inp.mi = _MOUSEINPUT(0, 0, 0, flag, 0, 0)
+            if user.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
+                raise OSError("Windows a refusé le clic de secours.")
+    finally:
+        user.SetCursorPos(old.x, old.y)
+    _v_pos[0], _v_pos[1] = x, y
+    return {"transient_clicked": [x, y], "button": button}
+
+
+def virtual_type(text: str) -> dict:
+    """Type without touching the real keyboard stream: WM_CHAR to the window
+    that received the last virtual click (or the foreground window)."""
+    text = str(text or "")
+    if not text:
+        return {"virtual_typed": 0}
+    if len(text) > 12000:
+        raise ValueError("text is too long (max 12000 chars)")
+    user = ctypes.windll.user32
+    hwnd = user.GetForegroundWindow()
+    _check_target(hwnd)
+
+    class GUIThreadInfo(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD),
+                    ("hwndActive", wintypes.HWND), ("hwndFocus", wintypes.HWND),
+                    ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
+                    ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND),
+                    ("rcCaret", wintypes.RECT)]
+
+    info = GUIThreadInfo(cbSize=ctypes.sizeof(GUIThreadInfo))
+    thread = user.GetWindowThreadProcessId(hwnd, None)
+    if not user.GetGUIThreadInfo(thread, ctypes.byref(info)) or not info.hwndFocus:
+        raise OSError("Aucun champ actif pour la saisie virtuelle. Clique d’abord dans le champ.")
+    hwnd = info.hwndFocus
+    raw = text.replace("\r\n", "\n").replace("\n", "\r").encode("utf-16-le")
+    for i in range(0, len(raw), 2):
+        _post(hwnd, WM_CHAR, int.from_bytes(raw[i:i + 2], "little"), 0)
+    return {"virtual_typed": len(text)}
+
+
 # ------------------------------------------------------- PyAutoGUI (classic)
 def _clamp_str(text, name) -> str:
     text = str(text or "")
@@ -195,9 +465,11 @@ def mouse_scroll(amount: int, y: int = None, x: int = None) -> dict:
     return {"scrolled": amount}
 
 
-def mouse_hscroll(amount: int) -> dict:
+def mouse_hscroll(amount: int, y=None, x=None) -> dict:
     """Horizontal scroll: positive = right."""
     amount = int(amount)
+    if x is not None and y is not None:
+        pyautogui.moveTo(int(x), int(y))
     pyautogui.hscroll(amount)
     return {"hscrolled": amount}
 

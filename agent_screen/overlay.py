@@ -42,6 +42,8 @@ class AgentOverlay:
             self.linger = max(0.0, min(60.0, float(linger)))
         except (TypeError, ValueError):
             self.linger = 5.0
+        self.mode = "auto"      # auto-hide the HUD while the agent clicks
+        self._started = False
         self.timer = None
         self.cursor = tk.Toplevel(root)
         self.cursor.withdraw()
@@ -84,7 +86,28 @@ class AgentOverlay:
         self.label.configure(text=f"●  AGENT ACTIF  ·  {mode}")
         self.reply.configure(text="Dis-moi quoi faire pendant que je travaille.")
         self.hud.geometry(f"470x116+{max(10, self.root.winfo_screenwidth() // 2 - 235)}+16")
-        self.hud.deiconify()
+        self._started = True
+        if self.mode == "always":
+            self.hud.deiconify()
+
+    def set_mode(self, mode):
+        """auto = hidden while the agent clicks, visible between steps;
+        always = always visible; hidden = never shown."""
+        self.mode = mode if mode in ("auto", "always", "hidden") else "auto"
+        if self.mode == "hidden":
+            self.hud.withdraw()
+        elif self.mode == "always" and getattr(self, "_started", False):
+            self.hud.deiconify()
+
+    def hide_for_action(self):
+        """Disappear while a click/scroll is delivered so the agent can never
+        click the chat interface by accident."""
+        if getattr(self, "_started", False):
+            self.hud.withdraw()
+
+    def show_after_action(self):
+        if self.mode == "always" and getattr(self, "_started", False):
+            self.hud.deiconify()
 
     def submit(self):
         text = self.entry.get().strip()
@@ -131,6 +154,7 @@ class AgentOverlay:
             self.timer = self.root.after(350, self.cursor.withdraw)
 
     def finish(self):
+        self._started = False
         if self.timer:
             self.root.after_cancel(self.timer)
             self.timer = None

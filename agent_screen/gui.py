@@ -31,7 +31,7 @@ from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_
                        migrate_legacy_keys, save, LOCAL_PROVIDERS)
 from .overlay import AgentOverlay
 from . import conversations
-from . import sessions
+from . import sessions, memory
 
 PROVIDER_LABELS = {
     "gemini": "Google Gemini",
@@ -219,6 +219,11 @@ FALLBACKC = "#a855f7"
 
 
 def apply_dark_theme(root: tk.Tk):
+    global ACC, ACC_HOVER
+    colors = {"violet": ("#8b5cf6", "#a78bfa"), "blue": ("#2563eb", "#60a5fa"),
+              "green": ("#047857", "#10b981"), "rose": ("#be185d", "#f472b6"),
+              "orange": ("#c2410c", "#fb923c")}
+    ACC, ACC_HOVER = colors.get(load().get("accent", "violet"), colors["violet"])
     style = ttk.Style(root)
     for theme in ("clam",):
         if theme in style.theme_names():
@@ -295,6 +300,8 @@ class App:
         self._run_session = None   # agent session being recorded (persisted on finish)
         self._run_events = None
         self._pump_id = None
+        self._hidden_for_run = False
+        self._hide_during_run = True
 
         root.title(f"⚡ {T(self.lang, 'app')} v{__version__}")
         root.geometry(f"1320x{min(880, root.winfo_screenheight() - 100)}")
@@ -474,7 +481,7 @@ class App:
         self.limit_var = tk.BooleanVar(value=self.cfg.get("limit_actions_per_capture", True))
         ttk.Checkbutton(limits, text="Limiter les actions par capture", variable=self.limit_var,
                         command=self._save_run_options).pack(side="left")
-        self.action_count = ttk.Spinbox(limits, from_=1, to=12, width=4, command=self._save_run_options)
+        self.action_count = ttk.Spinbox(limits, from_=1, to=3, width=4, command=self._save_run_options)
         self.action_count.set(self.cfg.get("actions_per_capture", 3))
         self.action_count.pack(side="left", padx=8)
         self.action_count.bind("<FocusOut>", lambda e: self._save_run_options())
@@ -749,7 +756,10 @@ class App:
                 autonomous_mode=cfg["autonomous_mode"],
                 autonomous_minutes=cfg["autonomous_minutes"],
                 autonomous_max_calls=cfg["autonomous_max_calls"],
-                autonomous_min_interval=cfg["autonomous_min_interval"])
+                autonomous_min_interval=cfg["autonomous_min_interval"],
+                virtual_input=cfg["virtual_input"], memory_enabled=cfg["memory_enabled"],
+                virtual_fallback=cfg["virtual_fallback"],
+                prepare_desktop=self._prepare_desktop)
             self.run = run
             # claim before starting the thread: the run owns the mouse from here, so
             # the poller can tell a live run from a dead one without a race
@@ -764,8 +774,17 @@ class App:
             if cfg["autonomous_mode"]:
                 mode_label += " · Autonome"
             self._run_session = sessions.new_session(goal, mode_label)
-            self._run_events = [{"kind": "goal", "step": 0, "text": goal}]
+            self._run_events = []
+            self._run_session["outcome"] = "running"
+            self._record("goal", goal)
+            self._hide_during_run = cfg["hide_during_run"]
+            self.overlay.set_mode(cfg["hud_mode"])
             self.overlay.start(mode_label)
+            if cfg["memory_enabled"]:
+                try:
+                    memory.learn_from_user(goal, "agent")
+                except (OSError, ValueError) as error:
+                    self._log(f"Mémoire non sauvegardée : {error}")
             threading.Thread(target=run.run, daemon=True).start()
         except agent.RunBusy:      # the local page took the mouse in between
             self.run = None
@@ -778,6 +797,12 @@ class App:
             self._add_card(T(self.lang, "failed"), f"{type(e).__name__}: {e}",
                            color=ERR, accent=ERR)
             self._finish("✖")
+
+    def _prepare_desktop(self):
+        ready = threading.Event()
+        self.q.put({"event": "prepare_desktop", "ready": ready})
+        if not ready.wait(3):
+            raise RuntimeError("L’interface n’a pas confirmé son masquage. Action annulée.")
 
     def _stop_run(self):
         if self.run:
@@ -809,6 +834,12 @@ class App:
         """Append one text event to the agent session being recorded."""
         if self._run_events is not None:
             self._run_events.append({"kind": kind, "step": step, "text": str(text)[:4000]})
+            if self._run_session is not None:
+                self._run_session["events"] = self._run_events
+                try:
+                    sessions.save_session(self._run_session)
+                except (OSError, ValueError) as error:
+                    self._log(f"Historique non sauvegardé : {error}")
 
     def _save_run_session(self, outcome):
         """Persist the recorded run; a save failure must never break the UI."""
@@ -818,15 +849,15 @@ class App:
             self._run_session["outcome"] = outcome
             self._run_session["events"] = self._run_events or []
             sessions.save_session(self._run_session)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as error:
+            self._log(f"Historique non sauvegardé : {error}")
         self._run_session = None
         self._run_events = None
 
     # ------------------------------------------------------------ history
     def _open_history(self):
         win = tk.Toplevel(self.root)
-        win.title(self._("history_title"))
+        win.title("Toutes les discussions · Chat et Agent")
         win.geometry("960x600")
         win.minsize(700, 420)
         win.transient(self.root)
@@ -837,8 +868,14 @@ class App:
         side = ttk.Frame(win, width=340, padding=(10, 10))
         side.grid(row=0, column=0, sticky="ns")
         side.grid_propagate(False)
-        ttk.Label(side, text=self._("history_title"), font=("Segoe UI", 12, "bold"),
+        ttk.Label(side, text="Toutes les discussions", font=("Segoe UI", 12, "bold"),
                   foreground=TXT).pack(anchor="w", pady=(0, 8))
+        query = tk.StringVar()
+        kind = tk.StringVar(value="Tous")
+        ttk.Label(side, text="Rechercher dans les échanges et les actions", foreground=MUT).pack(anchor="w")
+        ttk.Entry(side, textvariable=query).pack(fill="x", pady=(4, 8))
+        ttk.Combobox(side, textvariable=kind, values=("Tous", "Chat", "Agent"),
+                     state="readonly").pack(fill="x", pady=(0, 8))
         lst = tk.Listbox(side, background=CARD, foreground=TXT, selectbackground=ACC,
                          selectforeground="white", relief="flat", highlightthickness=1,
                          highlightbackground=LINE, font=("Segoe UI", 9), activestyle="none")
@@ -849,7 +886,7 @@ class App:
                        insertbackground=TXT, relief="flat", spacing3=6)
         view.grid(row=0, column=1, sticky="nsew")
 
-        self._history_items = sessions.load_all()
+        self._history_items = sessions.history_items(query.get(), kind.get())
 
         def entry(s):
             import datetime
@@ -859,10 +896,10 @@ class App:
                 when = "?"
             mark = {"done": "✔", "stopped": "⏹", "error": "✖",
                     "max_steps": "⚠", "autonomous_limit": "⚠"}.get(s["outcome"], "•")
-            return f"{mark} {when} · {s['goal'][:44]}"
+            return f"{mark} {s['kind']} · {when} · {s['goal'][:44]}"
 
         def refresh(select=None):
-            self._history_items = sessions.load_all()
+            self._history_items = sessions.history_items(query.get(), kind.get())
             lst.delete(0, "end")
             for s in self._history_items:
                 lst.insert("end", entry(s))
@@ -887,7 +924,8 @@ class App:
                      "banner": "🗨 Message du bandeau", "fallback": "🔄 Bascule IA",
                      "video": "🎬 Clip enregistré", "done": "✔ Terminé",
                      "error": "✖ Erreur", "note": "ℹ Note"}
-            lines = []
+            heads["result"] = "Résultat de l’action"
+            lines = [f"{s['kind']} · {s['mode']} · {s['outcome']}\n{s['goal']}"]
             for ev in s["events"]:
                 head = heads.get(ev["kind"], ev["kind"])
                 step = f" (étape {ev['step']})" if ev.get("step") and ev["kind"] in ("thought", "action") else ""
@@ -902,14 +940,42 @@ class App:
             idx = lst.curselection()
             if not idx or not self._history_items:
                 return
-            self._render_session(self._history_items[idx[0]])
+            item = self._history_items[idx[0]]
+            if item["kind"] == "Chat":
+                if self.chat_sending:
+                    return
+                self._persist_chat()
+                self.chat_current = item["chat"]
+                self.chat_history = [(m["role"], m["text"], m.get("provider", ""))
+                                     for m in self.chat_current["messages"]]
+                self._render_chat()
+                self._refresh_chat_list()
+                self.nb.select(self.tab_chat)
+            elif self.run is None:
+                self._render_session(item)
+                self.goal_entry.delete(0, "end")
+                self.goal_entry.insert(0, item["goal"])
+            else:
+                return
             win.destroy()
 
         def delete():
             idx = lst.curselection()
             if not idx or not self._history_items:
                 return
-            sessions.delete(self._history_items[idx[0]]["id"])
+            item = self._history_items[idx[0]]
+            if self.run is not None or self.chat_sending:
+                return
+            if not messagebox.askyesno("Supprimer", "Supprimer cet échange et son historique ?", parent=win):
+                return
+            store = conversations if item["kind"] == "Chat" else sessions
+            store.delete(item["id"])
+            if item["kind"] == "Chat":
+                if item["id"] == self.chat_current["id"]:
+                    self.chat_current = conversations.new_conversation()
+                    self.chat_history = []
+                    self._render_chat()
+                self._refresh_chat_list()
             refresh()
 
         btns = ttk.Frame(side)
@@ -922,7 +988,9 @@ class App:
                    command=win.destroy).pack(fill="x", pady=(8, 0))
 
         lst.bind("<<ListboxSelect>>", show)
-        refresh()
+        query.trace_add("write", lambda *_: refresh())
+        kind.trace_add("write", lambda *_: refresh())
+        refresh(select=0)
 
     def _render_session(self, session):
         """Re-render a finished session's events as activity cards."""
@@ -940,6 +1008,8 @@ class App:
                 self._add_card(f"⚡ {step} · {self._('command')}", text, color=WARN, accent=WARN)
             elif kind == "action_error":
                 self._add_card(T(self.lang, "action_failed"), text, color=ERR, accent=ERR)
+            elif kind == "result":
+                self._add_card(f"{step} · Résultat de l’action", text, color=MUT_LIGHT, accent=ACC)
             elif kind == "message":
                 self._add_card(self._("agent_reply"), text, color=OK, accent=OK)
             elif kind == "guidance":
@@ -961,6 +1031,11 @@ class App:
         self.q.put({"event": event, **kw})
 
     def _pump(self):
+        if self.run and os.name == "nt":
+            import ctypes
+            key = ctypes.windll.user32.GetAsyncKeyState
+            if all(key(k) & 0x8000 for k in (0x11, 0x10, 0x7B)):
+                self._stop_run()
         try:
             while True:
                 msg = self.q.get_nowait()
@@ -980,7 +1055,25 @@ class App:
 
     def _handle_event(self, msg):
         ev = msg["event"]
-        if ev == "ui_callback":
+        if ev == "prepare_desktop":
+            if self.run and not self.run.stopped:
+                if self._hide_during_run and self.root.state() not in ("iconic", "withdrawn"):
+                    self.root.iconify()
+                    self._hidden_for_run = True
+                if self.overlay:
+                    self.overlay.hide_for_action()
+                self.root.update_idletasks()
+                self.root.after(100, msg["ready"].set)
+            else:
+                msg["ready"].set()
+        elif ev == "thinking":
+            if self.overlay:
+                self.overlay.show_after_action()
+        elif ev == "action_result":
+            import json
+            self._record("result", f"{msg['name']} : {json.dumps(msg['result'], ensure_ascii=False, default=str)}",
+                         msg.get("step", 0))
+        elif ev == "ui_callback":
             if _alive(msg["window"]):
                 msg["callback"]()
         elif ev == "cursor":
@@ -1079,6 +1172,14 @@ class App:
                 self._finish("✖")
         elif ev == "chat_reply":
             if msg.get("generation", self._chat_generation) != self._chat_generation:
+                if msg.get("conversation_id") and not msg.get("error"):
+                    previous = next((c for c in conversations.load_all()
+                                     if c["id"] == msg["conversation_id"]), None)
+                    if previous is not None:
+                        previous["messages"].append({"role": "assistant", "text": msg.get("text", ""),
+                                                     "provider": msg.get("provider", "")})
+                        conversations.save_conversation(previous)
+                        self._refresh_chat_list()
                 return
             is_error = bool(msg.get("error"))
             text = msg.get("text", "") or ("(réponse vide)" if self.lang == "fr" else "(empty reply)")
@@ -1089,13 +1190,7 @@ class App:
                 self._chat_append(f"🤖 Projet 4{prov_tag}", text, "assistant")
                 self._persist_chat()
             else:
-                if self.chat_history and self.chat_history[-1][0] == "user":
-                    self.chat_history.pop()
-                    if self.chat_history:
-                        self._persist_chat()
-                    else:
-                        conversations.delete(self.chat_current["id"])
-                        self._refresh_chat_list(False)
+                self._persist_chat()
                 self._chat_append(T(self.lang, "chat_error"), text, "error")
 
             self.chat_sending = False
@@ -1116,6 +1211,9 @@ class App:
     def _finish(self, mark: str):
         if self.overlay:
             self.overlay.finish()
+        if self._hidden_for_run:
+            self.root.deiconify()
+            self._hidden_for_run = False
         self.run_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.guide_btn.config(state="disabled")
@@ -1200,6 +1298,20 @@ class App:
                                     style="Accent.TButton", command=self._send_chat)
         self.chat_send.grid(row=0, column=1, padx=(8, 0))
         self._refresh_chat_list()
+        self._apply_appearance()
+
+    def _apply_appearance(self):
+        cfg = load()
+        apply_dark_theme(self.root)
+        size = cfg.get("chat_font_size", 11)
+        self.chat_view.configure(font=("Segoe UI", size), padx=28, pady=24)
+        self.chat_entry.configure(font=("Segoe UI", size))
+        for tag in ("user_hdr", "bot_hdr", "err_hdr"):
+            self.chat_view.tag_configure(tag, font=("Segoe UI", size, "bold"), spacing1=18)
+        self.chat_view.tag_configure("body", font=("Segoe UI", size), spacing3=12,
+                                     lmargin1=12, lmargin2=12, rmargin=20)
+        self.chat_list.configure(selectbackground=ACC)
+        self.chat_cost.configure(text="Chat éco" if cfg["chat_eco"] else "Chat standard")
 
     def _refresh_chat_list(self, select_current=True):
         if not hasattr(self, "chat_list"):
@@ -1271,7 +1383,9 @@ class App:
         self._persist_chat()
 
     def _delete_chat(self):
-        if not self.chat_history:
+        if not self.chat_history or self.chat_sending:
+            return
+        if not messagebox.askyesno("Supprimer", "Supprimer cette discussion ?", parent=self.root):
             return
         conversations.delete(self.chat_current["id"])
         self.chat_current = conversations.new_conversation()
@@ -1321,6 +1435,7 @@ class App:
         keep = cfg.get("chat_context_messages", 6) if cfg.get("chat_eco", True) else 10
         recent = self.chat_history[-(keep + 1):]
         generation = self._chat_generation
+        conversation_id = self.chat_current["id"]
 
         def worker():
             b64 = None
@@ -1346,6 +1461,12 @@ class App:
                         + f"\n\nNouveau message de l'utilisateur : {text}"
                     )
 
+                if cfg["memory_enabled"]:
+                    try:
+                        memory.learn_from_user(text, "chat")
+                    except (OSError, ValueError):
+                        pass
+                    prompt += memory.prompt_block()
                 reply, eff_prov = chat_with_fallback(
                     cfg["provider"],
                     prompt=prompt,
@@ -1355,7 +1476,8 @@ class App:
                     max_tokens=cfg.get("chat_response_tokens", 700) if cfg.get("chat_eco", True) else 2048,
                 )
                 self.q.put({"event": "chat_reply", "text": reply, "error": False,
-                            "provider": eff_prov, "generation": generation})
+                            "provider": eff_prov, "generation": generation,
+                            "conversation_id": conversation_id})
             except Exception as e:
                 self.q.put({"event": "chat_reply", "text": str(e), "error": True,
                             "generation": generation})
@@ -1573,9 +1695,34 @@ class App:
             row=sr, column=0, columnspan=2, sticky="w", pady=2)
         sr += 1
 
-        free_var = tk.BooleanVar(value=bool(cfg.get("free_mouse", True)))
-        ttk.Checkbutton(sec2, text=T(lang, "free_mouse"), variable=free_var).grid(
+        virtual_var = tk.BooleanVar(value=cfg["virtual_input"])
+        ttk.Checkbutton(sec2, text="Souris virtuelle sans déplacer mon pointeur (hors mode jeu)",
+                        variable=virtual_var).grid(row=sr, column=0, columnspan=2, sticky="w", pady=2)
+        sr += 1
+        ttk.Label(sec2, text="Certaines applications ignorent les clics virtuels. Le clavier et le focus\nWindows restent partagés. Hors mode jeu uniquement.",
+                  foreground=MUT, wraplength=510).grid(row=sr, column=0, columnspan=2, sticky="w", pady=4)
+        sr += 1
+        virtual_fallback_var = tk.BooleanVar(value=cfg.get("virtual_fallback", True))
+        ttk.Checkbutton(sec2, text="Clic physique de secours si le clic virtuel est ignoré (pointeur restauré)",
+                        variable=virtual_fallback_var).grid(row=sr, column=0, columnspan=2, sticky="w", pady=2)
+        sr += 1
+        hide_var = tk.BooleanVar(value=cfg["hide_during_run"])
+        ttk.Checkbutton(sec2, text="Réduire la discussion pendant la mission", variable=hide_var).grid(
             row=sr, column=0, columnspan=2, sticky="w", pady=2)
+        sr += 1
+        ttk.Label(sec2, text="Bandeau d’activité").grid(row=sr, column=0, sticky="w", pady=3)
+        hud_labels = {"auto": "Discret pendant la mission", "always": "Visible pendant l’analyse", "hidden": "Toujours masqué"}
+        hud_cb = ttk.Combobox(sec2, values=list(hud_labels.values()), state="readonly", width=29)
+        hud_cb.set(hud_labels[cfg["hud_mode"]])
+        hud_cb.grid(row=sr, column=1, sticky="w", pady=3)
+        sr += 1
+        ttk.Label(sec2, text="Arrêt d’urgence : Ctrl + Maj + F12. Le bandeau est toujours masqué avant une action.",
+                  foreground=WARN, wraplength=510).grid(row=sr, column=0, columnspan=2, sticky="w", pady=4)
+        sr += 1
+        ttk.Label(sec2, text="Actions par capture (maximum 3)").grid(row=sr, column=0, sticky="w", pady=3)
+        actions_spin = ttk.Spinbox(sec2, from_=1, to=3, width=8)
+        actions_spin.set(cfg["actions_per_capture"])
+        actions_spin.grid(row=sr, column=1, sticky="w", pady=3)
         sr += 1
 
         shots_var = tk.BooleanVar(value=bool(cfg.get("screenshot_each_action")))
@@ -1655,6 +1802,65 @@ class App:
         lang_cb.grid(row=0, column=1, sticky="w", pady=3)
         r += 1
 
+        appearance = ttk.LabelFrame(frm, text=" Apparence et mémoire ", padding=12)
+        appearance.grid(row=r, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        appearance.columnconfigure(1, weight=1)
+        r += 1
+        ttk.Label(appearance, text="Couleur d’accent").grid(row=0, column=0, sticky="w", pady=3)
+        accent_cb = ttk.Combobox(appearance, state="readonly", values=("violet", "blue", "green", "rose", "orange"))
+        accent_cb.set(cfg["accent"])
+        accent_cb.grid(row=0, column=1, sticky="ew", pady=3)
+        ttk.Label(appearance, text="Taille du texte des discussions").grid(row=1, column=0, sticky="w", pady=3)
+        font_spin = ttk.Spinbox(appearance, from_=10, to=18, width=8)
+        font_spin.set(cfg["chat_font_size"])
+        font_spin.grid(row=1, column=1, sticky="w", pady=3)
+        memory_var = tk.BooleanVar(value=cfg["memory_enabled"])
+        ttk.Checkbutton(appearance, text="Mémoriser mes préférences (Chat et Agent)", variable=memory_var).grid(
+            row=2, column=0, columnspan=2, sticky="w", pady=(8, 3))
+        ttk.Label(appearance, text="Apprentissage local des phrases explicites : « retiens que… », « je préfère… »,\n« j’utilise… ». Aucun appel IA supplémentaire. Désactivé : ni lecture ni ajout.\nActivé : les préférences sont incluses dans le contexte envoyé au fournisseur choisi.\nL’historique des discussions est distinct de cette mémoire.",
+                  foreground=MUT, wraplength=510).grid(row=3, column=0, columnspan=2, sticky="w", pady=4)
+        facts_list = tk.Listbox(appearance, height=5, bg=FIELD, fg=TXT, selectbackground=ACC,
+                                exportselection=False, relief="flat")
+        facts_list.grid(row=4, column=0, columnspan=2, sticky="ew", pady=4)
+        fact_entry = ttk.Entry(appearance)
+        fact_entry.grid(row=5, column=0, columnspan=2, sticky="ew", pady=4)
+        memory_status = ttk.Label(appearance, foreground=MUT, wraplength=510)
+        memory_status.grid(row=7, column=0, columnspan=2, sticky="w")
+        facts = []
+
+        def refresh_memory():
+            facts[:] = memory.load_facts()
+            facts_list.delete(0, "end")
+            for fact in facts:
+                facts_list.insert("end", fact["text"])
+            memory_status.config(text=f"{len(facts)} préférence(s) enregistrée(s)", foreground=MUT)
+
+        def change_memory(operation):
+            try:
+                selected = facts_list.curselection()
+                if operation == "add":
+                    if not fact_entry.get().strip():
+                        return
+                    memory.add_facts([fact_entry.get()], source="manual")
+                    fact_entry.delete(0, "end")
+                elif operation == "delete" and selected:
+                    if not messagebox.askyesno("Mémoire", "Supprimer cette préférence ?", parent=win):
+                        return
+                    memory.delete(facts[selected[0]]["id"])
+                elif operation == "clear":
+                    if not messagebox.askyesno("Mémoire", "Effacer toutes les préférences mémorisées ?", parent=win):
+                        return
+                    memory.clear()
+                refresh_memory()
+            except (OSError, ValueError) as error:
+                memory_status.config(text=str(error), foreground=ERR)
+
+        memory_buttons = ttk.Frame(appearance)
+        memory_buttons.grid(row=6, column=0, columnspan=2, sticky="ew", pady=4)
+        for label, operation in (("Ajouter", "add"), ("Supprimer", "delete"), ("Tout effacer", "clear")):
+            ttk.Button(memory_buttons, text=label, command=lambda op=operation: change_memory(op)).pack(side="left", padx=3)
+        refresh_memory()
+
         def collect_and_save():
             p = PROVIDERS[provider_cb.current()]
             model_drafts[p] = model_cb.get().strip()
@@ -1681,7 +1887,15 @@ class App:
                 "window_title": win_title_entry.get().strip(),
                 "step_delay": delay,
                 "screenshot_each_action": bool(shots_var.get()),
-                "free_mouse": bool(free_var.get()),
+                "virtual_input": bool(virtual_var.get()),
+                "virtual_fallback": bool(virtual_fallback_var.get()),
+                "hide_during_run": bool(hide_var.get()),
+                "hud_mode": next(k for k, v in hud_labels.items() if v == hud_cb.get()),
+                "actions_per_capture": actions_spin.get(),
+                "limit_actions_per_capture": True,
+                "memory_enabled": bool(memory_var.get()),
+                "accent": accent_cb.get(),
+                "chat_font_size": font_spin.get(),
                 "cursor_linger": cursor_linger_spin.get(),
                 "chat_eco": bool(chat_eco_var.get()),
                 "chat_context_messages": chat_context_spin.get(),
@@ -1709,6 +1923,7 @@ class App:
             # eco, cursor, limits) here was silently reverted by the tab's stale
             # checkbox on the next run — the exact "mode autonome cassé" bug.
             self._apply_cfg_to_controls(new_cfg)
+            self._apply_appearance()
             if new_cfg.get("language") != old_lang:
                 info_lbl.config(text=T(new_cfg.get("language", "fr"), "saved_restart"))
                 self.restart_requested = True

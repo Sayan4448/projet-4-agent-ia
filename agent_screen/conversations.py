@@ -28,7 +28,7 @@ def _clean_conversation(item):
     raw_messages = item.get("messages", [])
     if not isinstance(raw_messages, list):
         raw_messages = []
-    messages = [_clean_message(m) for m in raw_messages[:MAX_MESSAGES]]
+    messages = [_clean_message(m) for m in raw_messages]
     messages = [m for m in messages if m]
     try:
         updated = float(item.get("updated", 0))
@@ -48,7 +48,7 @@ def load_all():
         return []
     items = [_clean_conversation(x) for x in raw] if isinstance(raw, list) else []
     items = [x for x in items if x]
-    return sorted(items, key=lambda x: (not x["favorite"], -x["updated"]))[:MAX_CONVERSATIONS]
+    return sorted(items, key=lambda x: (not x["favorite"], -x["updated"]))
 
 
 def _write(items):
@@ -76,7 +76,7 @@ def save_conversation(conversation):
         items = [x for x in load_all() if x["id"] != clean["id"]]
         items.append(clean)
         items.sort(key=lambda x: (not x["favorite"], -x["updated"]))
-        _write(items[:MAX_CONVERSATIONS])
+        _write(items)
     return clean
 
 

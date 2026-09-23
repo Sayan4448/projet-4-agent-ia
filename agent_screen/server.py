@@ -342,7 +342,9 @@ class Handler(BaseHTTPRequestHandler):
                                     agent_profile=cfg["agent_profile"], autonomous_mode=cfg["autonomous_mode"],
                                     autonomous_minutes=cfg["autonomous_minutes"],
                                     autonomous_max_calls=cfg["autonomous_max_calls"],
-                                    autonomous_min_interval=cfg["autonomous_min_interval"]))
+                                    autonomous_min_interval=cfg["autonomous_min_interval"],
+                                    virtual_input=cfg["virtual_input"], memory_enabled=cfg["memory_enabled"],
+                                    virtual_fallback=cfg.get("virtual_fallback", True)))
             except RunBusy:
                 # a run is already in flight, here or in the desktop window: one
                 # owner (agent) decides, so a second tab cannot share the mouse

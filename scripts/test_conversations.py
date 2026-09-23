@@ -41,6 +41,28 @@ class ConversationTests(unittest.TestCase):
         conversations.delete(second["id"])
         self.assertEqual([x["title"] for x in conversations.load_all()], ["Normal"])
 
+    def test_pending_reply_stays_in_its_original_discussion(self):
+        app = self.make_app()
+        app.chat_history = [("user", "Question en cours", "")]
+        app._persist_chat()
+        previous = app.chat_current["id"]
+        generation = app._chat_generation
+        app.chat_sending = True
+        app._new_chat()
+        app._handle_event({"event": "chat_reply", "generation": generation,
+                           "conversation_id": previous, "text": "Réponse conservée", "provider": "ollama"})
+        self.assertEqual(app.chat_history, [])
+        stored = next(c for c in conversations.load_all() if c["id"] == previous)
+        self.assertEqual(stored["messages"][-1]["text"], "Réponse conservée")
+
+    def test_long_discussions_keep_latest_messages(self):
+        item = conversations.new_conversation()
+        item["messages"] = [{"role": "user", "text": str(i)} for i in range(205)]
+        conversations.save_conversation(item)
+        loaded = conversations.load_all()[0]
+        self.assertEqual(len(loaded["messages"]), 205)
+        self.assertEqual(loaded["messages"][-1]["text"], "204")
+
     def test_malformed_messages_do_not_break_startup(self):
         conversations.conversations_file().write_text(
             '[{"id":"bad","title":"Importé","messages":null}]', encoding="utf-8")
