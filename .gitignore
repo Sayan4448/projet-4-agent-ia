@@ -19,3 +19,6 @@ tools/
 .pytest_cache/
 *.pem
 *.key
+
+# Android Kotlin sources under a dir named 'data'
+!android/**/data/

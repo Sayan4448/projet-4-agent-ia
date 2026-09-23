@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Projet 4, agent IA</string>
+    <string name="accessibility_description">Permet à l\'agent IA de lire l\'écran et d\'effectuer des gestes (toucher, glisser, saisir du texte) à votre place pendant une mission.</string>
+    <string name="channel_agent">Agent en cours</string>
+    <string name="channel_agent_desc">État de la mission de l\'agent IA</string>
+    <string name="notif_agent_running">Agent en cours d\'exécution</string>
+    <string name="notif_tap_to_stop">Touchez pour arrêter</string>
+    <string name="stop">Arrêter</string>
+</resources>
