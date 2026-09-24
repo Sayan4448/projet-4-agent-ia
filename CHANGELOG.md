@@ -3,7 +3,7 @@
 > **Renumérotation bêta** : le projet reste en bêta — les anciennes versions
 > `1.x` ont été renumérotées `0.1x` (1.0 → 0.10, 1.9.5 → 0.19.5, 2.0 → 0.20).
 
-## 0.20.0 (bêta)
+## 0.50.0 (bêta)
 
 - **Correctif « tapé mais jamais envoyé »** : chaque Entrée virtuelle portait le
   bit « touche étendue », donc Chromium/Electron lisait `NumpadEnter`
