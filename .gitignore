@@ -19,3 +19,4 @@ tools/
 .pytest_cache/
 *.pem
 *.key
+_beta_migration/

@@ -1,6 +1,9 @@
 # Historique
 
-## 2.0.0
+> **Renumérotation bêta** : le projet reste en bêta — les anciennes versions
+> `1.x` ont été renumérotées `0.1x` (1.0 → 0.10, 1.9.5 → 0.19.5, 2.0 → 0.20).
+
+## 0.20.0 (bêta)
 
 - **Nouveau style « Simple » par défaut** : interface claire et arrondie —
   boutons pilule, champ d'objectif et champ de chat arrondis, cartes d'activité
@@ -43,7 +46,7 @@
   (démarrage réduit en zone de notification, typique de Discord), l'exe est
   relancé une fois pour restaurer la fenêtre, et l'attente passe à 20 s.
 
-## 1.9.6
+## 0.19.6
 
 - Coordonnées normalisées 0–1000 pour toutes les actions souris : les modèles
   (Gemini en particulier) émettent nativement des positions sur une grille
@@ -62,7 +65,7 @@
   fenêtre n'est plus « non activable » pour l'utilisateur).
 - Correction du mode HUD « auto » qui ne réaffichait jamais le bandeau.
 
-## 1.9.5
+## 0.19.5
 
 - Souris virtuelle Windows par défaut : événements envoyés à la fenêtre cible sans
   déplacer le pointeur physique ni le garer dans un coin. Double-clic, molette,
@@ -87,7 +90,7 @@
   choisi avec le contexte ; désactivée, elle n’est ni injectée ni enrichie automatiquement.
 - Couleur d’accent et taille du texte Chat réglables, espacement des échanges amélioré.
 
-## 1.9.1
+## 0.19.1
 
 - Enregistrement vidéo réel (`record_video`) : clip MP4 H.264 de 1 à 30 s,
   enregistré dans `data/recordings`, via un ffmpeg embarqué (imageio-ffmpeg).
@@ -119,7 +122,7 @@
 - Correction du nombre maximal d’étapes par défaut (12 → 20) dans le code,
   l’interface et le test de régression.
 
-## 1.9.0
+## 0.19.0
 
 - Profil Montage vidéo pour Premiere Pro, CapCut et DaVinci Resolve.
 - Reconnaissance et lancement déterministe des trois logiciels de montage.
@@ -130,7 +133,7 @@
 - Budget par défaut : 60 minutes, 20 appels IA, intervalle minimal de 30 secondes.
 - Réponses de décision limitées à 900 tokens en mode éco et 1 600 sinon.
 
-## 1.8.0
+## 0.18.0
 
 - Discussions du Chat enregistrées localement et restaurées après redémarrage.
 - Barre latérale pour créer, ouvrir et supprimer une discussion.
@@ -139,7 +142,7 @@
 - Mode éco Chat activé par défaut : 6 messages précédents et réponses limitées à 700 tokens.
 - Réglages du contexte et de la longueur maximale dans Paramètres.
 
-## 1.7.0
+## 0.17.0
 
 - Nouveau nom affiché : **Projet 4, agent IA**.
 - Interface native sombre/violette, choix des modes et commandes regroupées.
@@ -152,7 +155,7 @@
 - Exécutable sans élévation obligatoire ; administrateur à la demande.
 - Documentation d’installation, utilisation, développement, IA locale et publication MSI.
 
-## 1.6.1
+## 0.16.1
 
 - Correction des coordonnées image/bureau et de la capture Windows 64 bits.
 - Journal des actions, captures intermédiaires, Stop pendant l’attente IA.
