@@ -468,6 +468,9 @@ class AgentRun:
         # change strategy instead of re-aiming 10 px around a dead target
         self._bad_click_zone = []
         self._zone_pending = []
+        # the last action was a typing whose text provably landed: the Enter
+        # that follows it is the "send" of a message and gets verified
+        self._typing_confirmed = False
         self._authorized_text = goal.lower()
         if self.eco_mode:
             self.image_width = min(self.image_width or 960, 960)
@@ -597,6 +600,7 @@ class AgentRun:
         self._stop.wait(self.type_settle)   # let the field render the new text
         fp_post = display.screen_fingerprint(window)
         if _fingerprint_distance(fp_pre, fp_post) >= 6:
+            self._typing_confirmed = True
             return result
         if virtual and self.virtual_fallback:
             self.history.append({"step": step_i, "summary": (
@@ -610,6 +614,7 @@ class AgentRun:
                 retry = input_control.transient_type(text)
                 fp_post = display.screen_fingerprint(window)
                 if _fingerprint_distance(fp_pre, fp_post) >= 6:
+                    self._typing_confirmed = True
                     return retry
             except Exception:  # noqa: BLE001 - fall through to honest failure
                 pass
@@ -629,6 +634,37 @@ class AgentRun:
             return 0
         return sum(1 for bx, by in self._bad_click_zone
                    if abs(bx - x) <= 25 and abs(by - y) <= 25)
+
+    def _enter_verified(self, args, step_i: int) -> dict:
+        """Enter right after a confirmed typing is the 'send' of a message:
+        verify the screen visibly changed (field cleared, message listed),
+        retry once on a silent miss (dropped keydown, app state race), then
+        fail honestly instead of claiming a message that never went out."""
+        window = self.window_title if self.window_mode else None
+        key = str(args.get("key", "enter"))
+        virtual = self.virtual_input and not self.game_mode
+        fp_pre = display.screen_fingerprint(window)
+        result = None
+        for attempt in (1, 2):
+            res = input_control.virtual_press_key(key) if virtual else None
+            if res is None:                # key not virtualizable: physical
+                res = input_control.press_key(key)
+            result = result or res
+            self._stop.wait(0.25)          # let the app commit the send
+            if _fingerprint_distance(fp_pre, display.screen_fingerprint(window)) >= 6:
+                return result
+            if attempt == 1:
+                self.history.append({"step": step_i, "summary": (
+                    "Enter after typing had no visible effect — retrying once.")})
+                self.emit("thought", step=step_i, text=(
+                    "⏳ Entrée sans effet visible — nouvel essai."
+                    if self.lang == "fr" else
+                    "⏳ Enter had no visible effect — retrying."))
+                self._stop.wait(0.2)
+        return {"ok": False, "error": (
+            "L'entrée n'a produit aucun changement visible après la frappe : le message "
+            "n'a probablement pas été envoyé. Vérifie le champ sur la capture, reclique "
+            "dedans au besoin, puis utilise le bouton d'envoi ou Entrée à nouveau.")}
 
     def _history_text(self) -> str:
         if not self.history:
@@ -965,6 +1001,7 @@ class AgentRun:
                     continue
 
                 summaries = []
+                self._typing_confirmed = False
                 act_t0 = time.monotonic()
                 for j, act in enumerate(actions, 1):
                     if self.stopped:
@@ -1123,6 +1160,12 @@ class AgentRun:
                             # text — Electron apps can swallow every WM_CHAR
                             # while the post reports nothing
                             result = self._type_verified(str(args.get("text", "")), i)
+                        elif (name == "press_key" and self._typing_confirmed
+                              and str(args.get("key", "")).lower() in ("enter", "return")
+                              and not self.browser):
+                            # the send of a message: verified, retried once,
+                            # honest failure instead of a phantom "sent"
+                            result = self._enter_verified(args, i)
                         elif (self.virtual_input and not self.game_mode and not self.browser
                               and name in VIRTUAL_ACTIONS):
                             # "second mouse": delivered to the target window without

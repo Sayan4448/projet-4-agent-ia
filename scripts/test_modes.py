@@ -209,7 +209,8 @@ class ModesTests(unittest.TestCase):
              patch.object(run, "_windows_text", return_value=""), \
              patch.object(agent, "chat_with_fallback", side_effect=replies), \
              patch.object(agent.display, "screen_fingerprint",
-                          side_effect=[(0,) * 144, (9,) * 144]), \
+                          side_effect=[(0,) * 144, (9,) * 144,
+                                       (9,) * 144, (20,) * 144]), \
              patch.object(input_control, "virtual_type", return_value={"virtual_typed": 7}) as vt, \
              patch.object(input_control, "virtual_press_key",
                           return_value={"virtual_pressed": "enter"}) as vk, \
@@ -217,9 +218,72 @@ class ModesTests(unittest.TestCase):
              patch.object(input_control, "mouse_up"):
             result = run.run()
         vt.assert_called_once_with("LESGAZO")
-        vk.assert_called_once_with("enter")
+        vk.assert_called_once_with("enter")   # sent on the first try: no retry
         tt.assert_not_called()
         self.assertEqual(result["outcome"], "done")
+
+    def test_unsent_enter_is_retried_then_fails_honestly(self):
+        """Enter after a confirmed typing that changes nothing must not be
+        reported as sent: one retry, then an honest ok=false so the model
+        re-observes instead of believing the message went out."""
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=2, step_delay=0, memory_enabled=False)
+        replies = [
+            (json.dumps({"actions": [{"name": "type_text", "args": {"text": "salut"}},
+                                      {"name": "press_key", "args": {"key": "enter"}}]}), "gemini"),
+            (json.dumps({"done": True, "summary": "sent"}), "gemini"),
+        ]
+        flat = tuple([9] * 144)
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent.display, "screen_fingerprint",
+                          side_effect=[(0,) * 144, flat, flat, flat, flat]), \
+             patch.object(input_control, "virtual_type", return_value={"virtual_typed": 5}), \
+             patch.object(input_control, "virtual_press_key",
+                          return_value={"virtual_pressed": "enter"}) as vk, \
+             patch.object(input_control, "transient_type"), \
+             patch.object(input_control, "mouse_up"):
+            result = run.run()
+        self.assertEqual(vk.call_count, 2)     # pressed, then retried once
+        self.assertFalse(result["ok"])        # still nothing on screen: honest failure
+        self.assertTrue(any("Enter after typing" in h["summary"] for h in run.history))
+
+    def test_retry_can_save_the_send(self):
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=2, step_delay=0, memory_enabled=False)
+        replies = [
+            (json.dumps({"actions": [{"name": "type_text", "args": {"text": "salut"}},
+                                      {"name": "press_key", "args": {"key": "enter"}}]}), "gemini"),
+            (json.dumps({"done": True, "summary": "sent"}), "gemini"),
+        ]
+        flat = tuple([9] * 144)
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent.display, "screen_fingerprint",
+                          side_effect=[(0,) * 144, flat, flat, flat, tuple([40] * 144)]), \
+             patch.object(input_control, "virtual_type", return_value={"virtual_typed": 5}), \
+             patch.object(input_control, "virtual_press_key",
+                          return_value={"virtual_pressed": "enter"}) as vk, \
+             patch.object(input_control, "transient_type"), \
+             patch.object(input_control, "mouse_up"):
+            result = run.run()
+        self.assertEqual(vk.call_count, 2)     # first Enter missed, retry landed
+        self.assertEqual(result["outcome"], "done")
+
+    def test_main_enter_is_not_marked_extended(self):
+        """Every posted Enter carried the KB extended flag, so Chromium read
+        NumpadEnter (event.code='NumpadEnter') and Discord's send handler
+        ignored the press — 'typed but never sent'. The main Enter must not
+        set bit 24; real extended keys (PageUp, arrows, Delete) keep it."""
+        lp = input_control._key_lparam(0x0D, False)
+        self.assertEqual((lp >> 24) & 1, 0, "main Enter must not be extended")
+        self.assertEqual((lp >> 16) & 0xFF, 0x1C, "scan code of Enter")
+        for vk in (0x21, 0x25, 0x26, 0x2E):
+            self.assertEqual((input_control._key_lparam(vk, False) >> 24) & 1, 1)
+        up = input_control._key_lparam(0x0D, True)
+        self.assertEqual((up >> 30) & 3, 3, "keyup transition bits")
 
     def test_prompt_teaches_spelled_names_and_type_verification(self):
         self.assertIn("L-E-S-G-A-Z-O", agent.SYSTEM_PROMPT)

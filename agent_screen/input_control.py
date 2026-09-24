@@ -449,7 +449,11 @@ _VKEYS = {
     "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
     **{f"f{i}": 0x70 + i - 1 for i in range(1, 13)},
 }
-_EXT_VK = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x0D}
+# Extended keys (the KB extended flag, bit 24 of lParam). VK_RETURN is NOT
+# one: marking the main Enter extended makes Chromium read NumpadEnter
+# (event.code='NumpadEnter'), and send handlers that check event.code ignore
+# the press — the "typed but never sent" bug.
+_EXT_VK = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E}
 
 
 def _key_lparam(vk: int, up: bool) -> int:
@@ -472,6 +476,7 @@ def virtual_press_key(key: str):
         return None
     hwnd = _type_target()
     _post(hwnd, WM_KEYDOWN, vk, _key_lparam(vk, False))
+    time.sleep(0.04)   # a real key is held ~40 ms; a 0 ms down-up reads as a malformed tap
     _post(hwnd, WM_KEYUP, vk, _key_lparam(vk, True))
     return {"virtual_pressed": str(key).lower().strip()}
 

@@ -5,6 +5,17 @@
 
 ## 0.20.0 (bêta)
 
+- **Correctif « tapé mais jamais envoyé »** : chaque Entrée virtuelle portait le
+  bit « touche étendue », donc Chromium/Electron lisait `NumpadEnter`
+  (`event.code='NumpadEnter'`) et les handlers d'envoi qui vérifient le code
+  ignoraient l'appui. L'Entrée principale est maintenant postée sans ce bit,
+  et le keydown/keyup respecte une durée d'appui réaliste (~40 ms).
+- **Envoi vérifié** : l'Entrée qui suit une frappe confirmée est vérifiée par
+  empreinte d'écran (champ vidé, message apparu), retentée une fois en cas
+  d'échec silencieux, puis échoue honnêtement au lieu de prétendre que le
+  message est parti. Harnais de reproduction : `scripts/smoke_enter.py`
+  (fenêtre native instrumentée — 100/100 envois, 0 Entrée étendue).
+
 - **Interface réactive pendant les missions** : la file d'événements est
   drainée toutes les 25 ms (au lieu de 80) et la miniature de capture est
   décodée dans un thread séparé — le décodage 1280 px sur le thread UI
