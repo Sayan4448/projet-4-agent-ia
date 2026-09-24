@@ -414,7 +414,7 @@ class AgentRun:
                  actions_per_capture=3, virtual_cursor=False, agent_profile="general",
                  autonomous_mode=False, autonomous_minutes=60, autonomous_max_calls=20,
                  autonomous_min_interval=30, virtual_input=True, memory_enabled=True,
-                 prepare_desktop=None, virtual_fallback=True):
+                 prepare_desktop=None, virtual_fallback=True, type_settle=0.08):
         self.execution_mode = execution_mode
         self.browser = None
         self.eco_mode = bool(eco_mode)
@@ -423,6 +423,8 @@ class AgentRun:
         # target window via PostMessage, the user's real cursor never moves/parks
         self.virtual_input = bool(virtual_input)
         self.virtual_fallback = bool(virtual_fallback)
+        # pause after typing before the "did it land?" screenshot (speed profile)
+        self.type_settle = max(0.0, min(0.5, float(type_settle)))
         self.memory_enabled = bool(memory_enabled)
         self.agent_profile = agent_profile if agent_profile in ("general", "video_editing") else "general"
         self.autonomous_mode = bool(autonomous_mode)
@@ -461,6 +463,11 @@ class AgentRun:
         self._last_pixel_key = None
         self._same_click_refusals = 0
         self._screen_changed_last_step = True
+        # dead-zone anti-spam: model coords of clicks that changed nothing —
+        # a third click near two ineffective ones is refused so the model must
+        # change strategy instead of re-aiming 10 px around a dead target
+        self._bad_click_zone = []
+        self._zone_pending = []
         self._authorized_text = goal.lower()
         if self.eco_mode:
             self.image_width = min(self.image_width or 960, 960)
@@ -587,7 +594,7 @@ class AgentRun:
         typed = result.get("virtual_typed") or result.get("typed") or 0
         if not typed:
             return result
-        self._stop.wait(0.08)   # let the field render the new text
+        self._stop.wait(self.type_settle)   # let the field render the new text
         fp_post = display.screen_fingerprint(window)
         if _fingerprint_distance(fp_pre, fp_post) >= 6:
             return result
@@ -610,6 +617,18 @@ class AgentRun:
             "La frappe n'a produit aucun changement visible : le champ l'a peut-être "
             "ignorée. Clique au centre du champ puis retape, ou vérifie que le focus "
             "est bien dans le champ avant d'écrire.")}
+
+    def _zone_hits(self, args) -> int:
+        """Recorded ineffective clicks near these MODEL coords (Chebyshev
+        distance <= 25 normalized units ~= 48 real px). 2+ means this click
+        would be the third shot at the same dead target."""
+        try:
+            x = float(args.get("x"))
+            y = float(args.get("y"))
+        except (TypeError, ValueError):
+            return 0
+        return sum(1 for bx, by in self._bad_click_zone
+                   if abs(bx - x) <= 25 and abs(by - y) <= 25)
 
     def _history_text(self) -> str:
         if not self.history:
@@ -1020,6 +1039,25 @@ class AgentRun:
                         self._same_click_refusals = 0
                         self._last_pixel_key = pkey
 
+                    # dead zone: two ineffective clicks already recorded near
+                    # this aim — a third in the same area is refused so the
+                    # model must switch method (shortcut, quick switcher,
+                    # search) instead of re-aiming around a dead target
+                    if (pkey is not None and not self._screen_changed_last_step
+                            and self._zone_hits(args) >= 2):
+                        self.history.append({"step": i, "summary": (
+                            f"REFUSED {name} at ({args.get('x')},{args.get('y')}): at least "
+                            "two clicks in this area changed nothing. The target does not "
+                            "respond to clicks there — switch method (keyboard shortcut, "
+                            "quick switcher, search field) or aim somewhere clearly different.")})
+                        self.emit("thought", step=i, text=(
+                            "⚠ Zone morte détectée — je change de méthode."
+                            if self.lang == "fr" else
+                            "⚠ Dead zone detected — switching method."))
+                        summaries.append(f"{name} REFUSED: dead zone (no screen change)")
+                        self._needs_verification = True
+                        break
+
                     # anything that opens a window (or the Start menu) needs a
                     # verification step before the agent may declare success
                     if name in LAUNCH_ACTIONS or (
@@ -1031,6 +1069,9 @@ class AgentRun:
                         if self.prepare_desktop:
                             self.prepare_desktop()
                         if name in PIXEL_ACTIONS and not self.browser:
+                            if pkey is not None:   # remember where we aimed in
+                                self._zone_pending.append(   # MODEL coords: the
+                                    (args.get("x"), args.get("y")))  # zone compares those
                             args = self._to_real(args)
                         if (self.virtual_input and not self.game_mode and not self.browser
                                 and name in ("mouse_move_rel", "mouse_down", "mouse_up", "key_down", "key_up")):
@@ -1163,6 +1204,14 @@ class AgentRun:
                 # anti-spam guard so an ineffective identical click gets refused
                 self._screen_changed_last_step = (
                     _fingerprint_distance(fp_before, _image_fingerprint(b64)) >= 6)
+                # feed the dead-zone memory: ineffective aims accumulate,
+                # an effective step clears the zone entirely
+                if self._screen_changed_last_step:
+                    self._bad_click_zone.clear()
+                else:
+                    self._bad_click_zone.extend(self._zone_pending)
+                    del self._bad_click_zone[:-12]
+                self._zone_pending = []
                 if not self._screen_changed_last_step and any(
                         a["name"] in ("mouse_click", "mouse_double_click") for a in step["actions"]):
                     self._needs_verification = True

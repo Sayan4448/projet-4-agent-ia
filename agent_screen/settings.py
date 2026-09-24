@@ -60,7 +60,17 @@ DEFAULTS = {
     "chat_font_size": 11,
     "accent": "violet",         # interface accent colour
     "ui_style": "simple",       # 'simple' (light, rounded) or 'classique' (dense dark)
+    "speed": "normal",          # agent pace profile: prudent / normal / rapide
     "ai_timeout": 45,           # seconds per AI request before giving up
+}
+
+# One "Vitesse" selector drives the pace knobs together: step delay, chained
+# actions per capture, post-typing settle. Choosing a profile writes these
+# values into the config, so each knob stays individually adjustable after.
+SPEEDS = {
+    "prudent": {"step_delay": 0.8, "actions_per_capture": 1, "settle": 0.12},
+    "normal": {"step_delay": 0.4, "actions_per_capture": 2, "settle": 0.08},
+    "rapide": {"step_delay": 0.15, "actions_per_capture": 3, "settle": 0.05},
 }
 
 
@@ -78,6 +88,8 @@ def _merge_modes(cfg, source):
         cfg["hud_mode"] = source["hud_mode"]
     if source.get("ui_style") in ("simple", "classique"):
         cfg["ui_style"] = source["ui_style"]
+    if source.get("speed") in SPEEDS:
+        cfg["speed"] = source["speed"]
     if source.get("accent") in ("violet", "blue", "green", "rose", "orange"):
         cfg["accent"] = source["accent"]
     if "actions_per_capture" in source:
@@ -263,6 +275,7 @@ def save(partial: dict) -> dict:
     """Merge a partial settings dict into config.json and return the new settings."""
     with _lock:
         cfg = _deep_merged_config()
+        previous_speed = cfg.get("speed", "normal")
         provider = str(partial.get("provider", "")).strip().lower()
         _merge_modes(cfg, partial)
         if provider in PROVIDERS:
@@ -297,6 +310,12 @@ def save(partial: dict) -> dict:
             cfg["window_mode"] = bool(partial["window_mode"])
         if "window_title" in partial:
             cfg["window_title"] = str(partial["window_title"] or "")
+        # a speed profile change drives its pace knobs along; an explicit
+        # step_delay/actions in the same save (dialog spinners) still wins below
+        if partial.get("speed") in SPEEDS and partial["speed"] != previous_speed:
+            prof = SPEEDS[partial["speed"]]
+            cfg["step_delay"] = prof["step_delay"]
+            cfg["actions_per_capture"] = prof["actions_per_capture"]
         if "step_delay" in partial:
             try:
                 cfg["step_delay"] = max(0.0, min(10.0, float(partial["step_delay"])))

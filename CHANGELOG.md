@@ -5,6 +5,20 @@
 
 ## 0.20.0 (bêta)
 
+- **Interface réactive pendant les missions** : la file d'événements est
+  drainée toutes les 25 ms (au lieu de 80) et la miniature de capture est
+  décodée dans un thread séparé — le décodage 1280 px sur le thread UI
+  gelait tous les boutons 100–300 ms à chaque étape. En mode rapide la
+  miniature est carrément désactivée.
+- **Profil « Vitesse »** (Prudent / Normal / Rapide) dans les Paramètres :
+  pilote ensemble le délai entre étapes (0,8 / 0,4 / 0,15 s), les actions
+  par capture (1 / 2 / 3) et l'attente post-frappe. Chaque réglage reste
+  ajustable finement après avoir choisi un profil.
+- **Zone morte anti-spam** : deux clics inefficaces dans une même zone
+  (~50 px) refusent le troisième — l'agent doit changer de méthode (raccourci
+  clavier, sélecteur rapide, recherche) au lieu de re-viser autour d'une
+  cible morte. Un clic efficace vide la zone.
+
 - **Nouveau style « Simple » par défaut** : interface claire et arrondie —
   boutons pilule, champ d'objectif et champ de chat arrondis, cartes d'activité
   à coins arrondis, palette claire. Les réglages fins (profil, éco, autonome,

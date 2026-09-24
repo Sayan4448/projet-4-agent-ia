@@ -28,7 +28,7 @@ from .agent import AgentRun
 from .ai_client import AIError, chat, chat_with_fallback, list_models
 from .paths import app_root, load_dotenv_if_present
 from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_providers, load,
-                       migrate_legacy_keys, save, LOCAL_PROVIDERS)
+                       migrate_legacy_keys, save, LOCAL_PROVIDERS, SPEEDS)
 from .overlay import AgentOverlay
 from . import conversations
 from . import sessions, memory
@@ -439,6 +439,9 @@ class App:
         self.run: AgentRun | None = None
         self.restart_requested = False
         self._thumb_refs = []
+        # thumbnails decoded off the UI thread land here; the pump attaches
+        # them (PhotoImage must be created on the Tk thread)
+        self._img_q: "queue.Queue[tuple]" = queue.Queue()
         self._ghost = None
         self.overlay = None
         self.chat_history = []
@@ -927,7 +930,13 @@ class App:
         cv.redraw = redraw
         return cv
 
-    def _enlarge_shot(self, img):
+    def _enlarge_shot(self, b64_png: str):
+        # decoded on demand: keeping the full-res image alive for every card
+        # was the memory hog; only the small b64 string is retained
+        try:
+            img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
+        except Exception:  # noqa: BLE001 - a broken card double-click is not fatal
+            return
         win = tk.Toplevel(self.root)
         win.title("Agent Screen — Capture d'écran")
         big = img.copy()
@@ -939,40 +948,65 @@ class App:
         win.geometry(f"{big.width}x{big.height}")
 
     def _add_shot_card(self, title: str, b64_png: str):
+        """Card now, image later: decoding 1280 px of base64 + thumbnailing
+        on the UI thread froze every button for 100-300 ms at each step. The
+        PIL work runs in a worker; the pump only creates the PhotoImage."""
+        if self.cfg.get("speed", "normal") == "rapide":
+            self._add_card(title, "Miniature désactivée (mode rapide) — les captures "
+                           "restent visibles dans le panneau et dans data/shots/.",
+                           color=SHOT_C, accent=SHOT_C)
+            self._log(f"📸 {title} (miniature désactivée — mode rapide)")
+            return
         if self.simple_ui:
             cv = self._simple_card(title, accent=SHOT_C)
-            try:
-                img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
-                thumb = img.copy()
-                thumb.thumbnail((390, 230), resample=Image.BILINEAR, reducing_gap=2.0)
-                photo = ImageTk.PhotoImage(thumb)
-                self._thumb_refs.append(photo)
-                cv.card_state["photo"] = photo
-                cv.card_state["on_img_dbl"] = lambda _e, img=img: self._enlarge_shot(img)
-                cv.redraw()
-            except Exception as e:
-                tk.Label(cv, text=self._("no_shot", e=e), font=("Segoe UI", 9),
-                         background=CARD, foreground=ERR).pack(pady=4)
+            cv.card_state["photo"] = None
             self.canvas.update_idletasks()
             self.canvas.yview_moveto(1.0)
+            threading.Thread(target=self._decode_shot, args=(cv, None, b64_png),
+                             daemon=True).start()
             return
         card = self._add_card(title, accent=SHOT_C)
+        lbl = tk.Label(card, text="…", background=CARD, foreground=MUT)
+        lbl.pack(padx=10, pady=(0, 4))
+        threading.Thread(target=self._decode_shot, args=(None, lbl, b64_png),
+                         daemon=True).start()
+
+    def _decode_shot(self, cv, lbl, b64_png):
+        """Worker thread: b64 -> PIL thumbnail. Tk objects are not
+        thread-safe, so only the result crosses back to the UI thread."""
         try:
             img = Image.open(io.BytesIO(base64.b64decode(b64_png)))
             thumb = img.copy()
             thumb.thumbnail((390, 230), resample=Image.BILINEAR, reducing_gap=2.0)
-            photo = ImageTk.PhotoImage(thumb)
-            self._thumb_refs.append(photo)
+            self._img_q.put((cv, lbl, b64_png, thumb))
+        except Exception as e:  # noqa: BLE001 - shown on the card
+            self._img_q.put((cv, lbl, b64_png, e))
 
-            lbl = tk.Label(card, image=photo, background=CARD, cursor="hand2")
-            lbl.pack(padx=10, pady=(0, 4))
-
-            lbl.bind("<Double-Button-1>", lambda _e, img=img: self._enlarge_shot(img))
-            tk.Label(card, text=self._("dbl_click"), font=("Segoe UI", 8),
-                     background=CARD, foreground=MUT).pack(pady=(0, 4))
-        except Exception as e:
-            tk.Label(card, text=self._("no_shot", e=e), font=("Segoe UI", 9),
-                     background=CARD, foreground=ERR).pack(pady=4)
+    def _drain_images(self):
+        """UI thread: attach thumbnails decoded by _decode_shot."""
+        while True:
+            try:
+                cv, lbl, b64_png, outcome = self._img_q.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                if isinstance(outcome, Exception):
+                    if lbl is not None:
+                        lbl.configure(text=self._("no_shot", e=outcome), image="", cursor="")
+                    continue
+                photo = ImageTk.PhotoImage(outcome)
+                self._thumb_refs.append(photo)
+                if cv is not None:
+                    cv.card_state["photo"] = photo
+                    cv.card_state["on_img_dbl"] = lambda _e, b=b64_png: self._enlarge_shot(b)
+                    cv.redraw()
+                elif lbl is not None:
+                    lbl.configure(image=photo, text="", cursor="hand2")
+                    lbl.bind("<Double-Button-1>", lambda _e, b=b64_png: self._enlarge_shot(b))
+                    tk.Label(lbl.master, text=self._("dbl_click"), font=("Segoe UI", 8),
+                             background=CARD, foreground=MUT).pack(pady=(0, 4))
+            except Exception:  # noqa: BLE001 - one bad card must not kill the pump
+                pass
 
     # -- Agent controls
     def _start_run(self):
@@ -1029,6 +1063,7 @@ class App:
                 autonomous_min_interval=cfg["autonomous_min_interval"],
                 virtual_input=cfg["virtual_input"], memory_enabled=cfg["memory_enabled"],
                 virtual_fallback=cfg["virtual_fallback"],
+                type_settle=SPEEDS.get(cfg.get("speed", "normal"), SPEEDS["normal"])["settle"],
                 prepare_desktop=self._prepare_desktop)
             self.run = run
             # claim before starting the thread: the run owns the mouse from here, so
@@ -1302,7 +1337,7 @@ class App:
 
     def _pump(self):
         # One bad event must never kill the pump: each message is handled under
-        # its own try, and the 80 ms tick is rescheduled in a finally. A dead
+        # its own try, and the 25 ms tick is rescheduled in a finally. A dead
         # pump is what used to leave the run "finished" while the UI looked
         # frozen (buttons dead, events piling up in the queue).
         try:
@@ -1311,7 +1346,8 @@ class App:
                 key = ctypes.windll.user32.GetAsyncKeyState
                 if all(key(k) & 0x8000 for k in (0x11, 0x10, 0x7B)):
                     self._stop_run()
-            while True:
+            self._drain_images()
+            for _ in range(50):   # bounded so one tick can't starve the UI
                 try:
                     msg = self.q.get_nowait()
                 except queue.Empty:
@@ -1331,7 +1367,7 @@ class App:
             return
         finally:
             try:
-                self._pump_id = self.root.after(80, self._pump)
+                self._pump_id = self.root.after(25, self._pump)
             except tk.TclError:
                 pass
 
@@ -2008,6 +2044,25 @@ class App:
         steps_spin.grid(row=sr, column=1, sticky="w", pady=3)
         sr += 1
 
+        # one selector drives the pace knobs (delay, actions, settle); the
+        # spinners below stay for fine-tuning after a profile is chosen
+        speed_labels = {"prudent": "Prudent — lent et vérifié",
+                        "normal": "Normal",
+                        "rapide": "Rapide — enchaînement accéléré"}
+        ttk.Label(sec2, text="Vitesse de l’agent").grid(row=sr, column=0, sticky="w", pady=3)
+        speed_cb = ttk.Combobox(sec2, state="readonly", values=list(speed_labels.values()))
+        speed_cb.set(speed_labels.get(cfg.get("speed", "normal"), speed_labels["normal"]))
+        speed_cb.grid(row=sr, column=1, sticky="w", pady=3)
+
+        def apply_speed(_e=None):
+            key = next(k for k, v in speed_labels.items() if v == speed_cb.get())
+            prof = SPEEDS[key]
+            delay_spin.set(prof["step_delay"])
+            actions_spin.set(prof["actions_per_capture"])
+
+        speed_cb.bind("<<ComboboxSelected>>", apply_speed)
+        sr += 1
+
         ttk.Label(sec2, text=T(lang, "step_delay")).grid(row=sr, column=0, sticky="w", pady=3)
         delay_spin = ttk.Spinbox(sec2, from_=0.0, to=6.0, increment=0.2, width=8)
         delay_spin.set(cfg.get("step_delay", 0.4))
@@ -2238,6 +2293,7 @@ class App:
                 "memory_enabled": bool(memory_var.get()),
                 "accent": accent_cb.get(),
                 "ui_style": next(k for k, v in style_labels.items() if v == style_cb.get()),
+                "speed": next(k for k, v in speed_labels.items() if v == speed_cb.get()),
                 "ai_timeout": ai_timeout,
                 "chat_font_size": font_spin.get(),
                 "cursor_linger": cursor_linger_spin.get(),

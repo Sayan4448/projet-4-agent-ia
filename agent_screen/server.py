@@ -14,7 +14,7 @@ from . import __version__, display
 from .agent import RunBusy, run_goal
 from .ai_client import AIError, chat
 from .paths import load_dotenv_if_present
-from .settings import PROVIDERS, get_provider_keys, load, migrate_legacy_keys, save
+from .settings import PROVIDERS, SPEEDS, get_provider_keys, load, migrate_legacy_keys, save
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -344,7 +344,9 @@ class Handler(BaseHTTPRequestHandler):
                                     autonomous_max_calls=cfg["autonomous_max_calls"],
                                     autonomous_min_interval=cfg["autonomous_min_interval"],
                                     virtual_input=cfg["virtual_input"], memory_enabled=cfg["memory_enabled"],
-                                    virtual_fallback=cfg.get("virtual_fallback", True)))
+                                    virtual_fallback=cfg.get("virtual_fallback", True),
+                                    type_settle=SPEEDS.get(cfg.get("speed", "normal"),
+                                                           SPEEDS["normal"])["settle"]))
             except RunBusy:
                 # a run is already in flight, here or in the desktop window: one
                 # owner (agent) decides, so a second tab cannot share the mouse

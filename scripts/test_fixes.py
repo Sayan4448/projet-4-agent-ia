@@ -910,6 +910,58 @@ class TestReliabilityFixes(unittest.TestCase):
         finally:
             settings.save({"ui_style": old.get("ui_style", "simple")})
 
+    def test_shot_card_decodes_off_the_ui_thread(self):
+        """The 1280 px base64 decode used to run in _handle_event: every step
+        froze the buttons for 100-300 ms. The PIL work now happens in
+        _decode_shot (worker) and only the PhotoImage is created on the Tk
+        thread by _drain_images."""
+        import base64 as b64
+        import io
+        import tkinter as tk
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 48), (10, 20, 30)).save(buf, format="PNG")
+        tiny = b64.b64encode(buf.getvalue()).decode()
+
+        old = settings.load()
+        try:
+            settings.save({"ui_style": "simple", "speed": "normal"})
+            root = tk.Tk()
+            root.withdraw()
+            app = gui.App(root)
+            try:
+                cv = app._simple_card("📸 test", accent="#fff")
+                cv.card_state["photo"] = None
+                app._decode_shot(cv, None, tiny)      # worker part, synchronous here
+                self.assertFalse(app._img_q.empty())
+                app._drain_images()                    # UI-thread part
+                self.assertTrue(app._img_q.empty())
+                self.assertIsNotNone(cv.card_state["photo"])
+                self.assertTrue(app._thumb_refs)
+            finally:
+                root.destroy()
+        finally:
+            settings.save({"ui_style": old.get("ui_style", "simple"),
+                           "speed": old.get("speed", "normal")})
+
+    def test_rapide_mode_skips_the_thumbnail_entirely(self):
+        import tkinter as tk
+        old = settings.load()
+        try:
+            settings.save({"ui_style": "simple", "speed": "rapide"})
+            root = tk.Tk()
+            root.withdraw()
+            app = gui.App(root)
+            try:
+                app._add_shot_card("📸 test", "not-base64-at-all")
+                root.update()
+                self.assertTrue(app._img_q.empty())   # no decode was scheduled
+            finally:
+                root.destroy()
+        finally:
+            settings.save({"ui_style": old.get("ui_style", "simple"),
+                           "speed": old.get("speed", "normal")})
+
     def test_goal_runner_shows_what_ran(self):
         """The page read a never-existing st.action/st.error: the user saw the
         thoughts and nothing about the commands executed on their PC."""

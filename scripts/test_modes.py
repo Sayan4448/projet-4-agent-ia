@@ -225,6 +225,64 @@ class ModesTests(unittest.TestCase):
         self.assertIn("L-E-S-G-A-Z-O", agent.SYSTEM_PROMPT)
         self.assertIn("next screenshot MUST show the text", agent.SYSTEM_PROMPT)
 
+    def test_dead_zone_refuses_third_nearby_ineffective_click(self):
+        """Re-aiming 10 px around a dead target used to defeat the exact-match
+        anti-spam: three ineffective clicks in the same area now stop the run
+        with a 'switch method' instruction."""
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=4, step_delay=0, memory_enabled=False)
+        replies = [
+            (json.dumps({"actions": [{"name": "mouse_click", "args": a}]}), "gemini")
+            for a in ({"x": 40, "y": 50}, {"x": 45, "y": 48}, {"x": 42, "y": 52},
+                      {"x": 43, "y": 51})
+        ]
+        with patch.object(run, "_shot", return_value=image(0)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}) as action, \
+             patch.object(input_control, "transient_click") as transient, \
+             patch.object(input_control, "mouse_up"):
+            result = run.run()
+        # the two first nearby clicks ran, the third (and the fourth) were refused
+        self.assertEqual(action.call_count, 2)
+        transient.assert_not_called()
+        self.assertTrue(any("zone" in h["summary"].lower() for h in run.history))
+        self.assertFalse(result["ok"])
+
+    def test_effective_click_clears_the_dead_zone(self):
+        from scripts.test_media_autonomy import image
+        run = agent.AgentRun("goal", "gemini", max_steps=2, step_delay=0, memory_enabled=False)
+        replies = [
+            (json.dumps({"actions": [{"name": "mouse_click", "args": {"x": 40, "y": 50}}]}), "gemini"),
+            (json.dumps({"actions": [{"name": "mouse_click", "args": {"x": 42, "y": 51}}]}), "gemini"),
+        ]
+        shots = iter([image(0), image(255), image(255)])
+        with patch.object(run, "_shot", side_effect=lambda: next(shots)), \
+             patch.object(run, "_windows_text", return_value=""), \
+             patch.object(agent, "chat_with_fallback", side_effect=replies), \
+             patch.object(agent, "_virtual_action", return_value={"ok": True}) as action, \
+             patch.object(input_control, "mouse_up"):
+            run.run()
+        # step 1 changed the screen (0 -> 255): the zone was cleared, so the
+        # nearby click of step 2 is still allowed instead of being refused
+        self.assertEqual(action.call_count, 2)
+        self.assertEqual(run._bad_click_zone, [(42, 51)])
+
+    def test_speed_setting_round_trip_and_profile_values(self):
+        cfg = settings.save({"speed": "rapide"})
+        try:
+            self.assertEqual(cfg["speed"], "rapide")
+            self.assertEqual(cfg["step_delay"], settings.SPEEDS["rapide"]["step_delay"])
+            self.assertEqual(settings.load()["speed"], "rapide")
+            # an unknown value is refused, the current choice survives
+            self.assertEqual(settings.save({"speed": "turbo"})["speed"], "rapide")
+        finally:
+            settings.save({"speed": "normal"})
+
+    def test_type_settle_is_bounded_and_used_by_the_run(self):
+        self.assertEqual(agent.AgentRun("g", "gemini", type_settle=0.2).type_settle, 0.2)
+        self.assertEqual(agent.AgentRun("g", "gemini", type_settle=99).type_settle, 0.5)
+
     def test_scroll_coordinates_are_scaled_and_bounded(self):
         run = agent.AgentRun("goal", "gemini")
         run.scale = 1.5
