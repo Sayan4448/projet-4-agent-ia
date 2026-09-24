@@ -27,9 +27,10 @@ un rapport JSON. Il n’appelle aucune IA et ne navigue pas sur un site externe.
 
 ## Ce qui n’est pas validé par ces tests
 
-- Les réponses d’un modèle Ollama ou LM Studio réel : ces serveurs n’étaient pas
-  démarrés sur la machine. Les formats des requêtes, listes de modèles et règles
-  de fallback sont couverts par des tests simulés.
+- Ollama a été validé en réel depuis : serveur relancé automatiquement, modèle
+  vision choisi automatiquement (`gemma4:12b`), réponse image correcte en ~9 s.
+  LM Studio réel reste non validé : les formats des requêtes, listes de modèles
+  et règles de fallback sont couverts par des tests simulés.
 - La réussite de toutes les consignes possibles : elle dépend du modèle, des pages,
   du contenu de l’écran et des droits Windows.
 - L’installation sur chaque version de Windows ou chaque configuration matérielle.

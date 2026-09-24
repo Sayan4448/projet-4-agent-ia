@@ -7,8 +7,11 @@ Providers: Gemini (default), OpenAI, Anthropic, Groq, DeepSeek, OpenRouter.
 - max_tokens auto-retry: if a provider rejects max_tokens, retry with a safe value.
 """
 import json
+import os
 import re
 import queue
+import shutil
+import subprocess
 import threading
 
 import requests
@@ -98,8 +101,23 @@ def _explain_http(provider: str, status: int, text: str) -> str:
 
 
 def _network_error(e: Exception) -> AIError:
-    return AIError("Pas de connexion internet (ou réseau bloqué). "
-                   "Vérifie ta connexion puis réessaie.")
+    # ConnectionError covers refused/dropped connections (and ConnectTimeout,
+    # which subclasses it): the server is unreachable. A bare Timeout is a
+    # ReadTimeout — the server answered slowly, which is a different problem.
+    if isinstance(e, requests.ConnectionError):
+        err = AIError("Pas de connexion internet (ou réseau bloqué). "
+                      "Vérifie ta connexion puis réessaie.")
+        err.kind = "conn"
+        return err
+    if isinstance(e, requests.Timeout):
+        err = AIError("Le fournisseur met trop de temps à répondre (délai dépassé). "
+                      "Réessaie, ou augmente « Délai IA » dans Paramètres.")
+        err.kind = "timeout"
+        return err
+    err = AIError("Pas de connexion internet (ou réseau bloqué). "
+                  "Vérifie ta connexion puis réessaie.")
+    err.kind = "conn"
+    return err
 
 
 # ----------------------------------------------------------------- chat paths
@@ -159,13 +177,15 @@ def _timeout() -> int:
         return TIMEOUT
 
 
-def _post(url: str, headers: dict, body: dict, retry_5xx: int = 2) -> requests.Response:
+def _post(url: str, headers: dict, body: dict, retry_5xx: int = 2,
+          timeout: int = None) -> requests.Response:
     """POST with automatic retry on transient 5xx (Gemini free tier often
     answers 503 'model is overloaded' — retrying a few seconds later works)."""
     delay = 3.0
     for attempt in range(retry_5xx + 1):
         try:
-            r = requests.post(url, headers=headers, data=json.dumps(body), timeout=_timeout())
+            r = requests.post(url, headers=headers, data=json.dumps(body),
+                              timeout=timeout or _timeout())
         except requests.RequestException as e:
             raise _network_error(e) from e
         if r.status_code < 500 or attempt >= retry_5xx:
@@ -311,6 +331,92 @@ def _local_base(provider):
     return base if base.endswith("/v1") else base + "/v1"
 
 
+def _ollama_exe() -> str:
+    """Locate the Ollama CLI (PATH first, then the standard Windows install)."""
+    exe = shutil.which("ollama")
+    if exe:
+        return exe
+    candidate = os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                             "Programs", "Ollama", "ollama.exe")
+    return candidate if os.path.isfile(candidate) else ""
+
+
+def _local_server_up(provider: str) -> bool:
+    try:
+        suffix = "/api/tags" if provider == "ollama" else "/models"
+        return requests.get(_local_base(provider) + suffix, timeout=2).status_code < 500
+    except requests.RequestException:
+        return False
+
+
+def _ensure_local_server(provider: str) -> bool:
+    """Start the local server when it is down and self-launchable — Ollama's
+    `serve` is headless; LM Studio is a GUI app we won't spawn silently."""
+    if provider != "ollama":
+        return _local_server_up(provider)
+    if _local_server_up(provider):
+        return True
+    exe = _ollama_exe()
+    if not exe:
+        return False
+    try:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([exe, "serve"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=flags)
+    except Exception:  # noqa: BLE001
+        return False
+    deadline = time.time() + 12.0
+    while time.time() < deadline and not _local_server_up(provider):
+        time.sleep(0.4)
+    return _local_server_up(provider)
+
+
+def _auto_pick_local_model(provider: str, want_vision: bool) -> str:
+    """Pick a model when the selector was left empty: skip embedding-only
+    entries, prefer a vision-capable one when a screenshot is attached.
+    The choice is persisted so the GUI shows what is actually used."""
+    def pick():
+        if provider == "ollama":
+            r = _get(_local_base(provider) + "/api/tags", {})
+            if r.status_code >= 400:
+                return ""
+            usable = [m for m in (r.json().get("models") or [])
+                      if not m.get("remote_model")
+                      and set(m.get("capabilities") or ["completion"]) - {"embedding"}
+                      and "embed" not in (m.get("name") or "").lower()]
+            if not usable:
+                return ""
+            if want_vision:
+                vision = [m for m in usable if "vision" in (m.get("capabilities") or [])]
+                usable = vision or usable
+                # instruct/chat models expose "tools"; vision specialists like
+                # moondream caption images but return empty chat answers
+                chatty = [m for m in usable if "tools" in (m.get("capabilities") or [])]
+                usable = chatty or usable
+            # smallest first: a light model actually answers inside the
+            # AI timeout, where a 12B one may not on a machine without GPU
+            return min(usable, key=lambda m: (m.get("size") or 0, m.get("name") or "")).get("name") or ""
+        names = [n for n in list_models(provider) if "embed" not in n.lower()]
+        return names[0] if names else ""
+
+    name = ""
+    for attempt in range(2):
+        try:
+            name = pick()
+            break
+        except AIError:
+            if attempt or not _ensure_local_server(provider):
+                break
+    if name:
+        try:
+            from .settings import save
+            save({"models": {provider: name}})
+        except Exception:  # noqa: BLE001
+            pass
+    return name
+
+
 def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_tokens):
     headers = {"Content-Type": "application/json"}
     if key:
@@ -324,6 +430,10 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_
             user["images"] = [data for data, _mime in media]
         if is_json:
             body["format"] = "json"
+        # thinking models burn the whole token budget on `message.thinking`
+        # and answer with empty content — agent decisions need the answer
+        body["think"] = False
+        body["keep_alive"] = "10m"
         body["options"] = {"temperature": 0.2, "num_predict": max_tokens}
         url = _local_base(provider) + "/api/chat"
     else:
@@ -336,9 +446,26 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_
         body.update(temperature=0.2, max_tokens=max_tokens)
         url = _local_base(provider) + "/chat/completions"
     try:
-        r = _post(url, headers, body)
+        # local servers pay a one-time model load (a 12B takes ~90 s cold):
+        # the request floor must cover it or the first call always fails
+        r = _post(url, headers, body, timeout=max(_timeout(), 120))
     except AIError as e:
-        raise AIError(f"{_provider_name(provider)} inaccessible. Démarre son serveur local et vérifie l'adresse dans Paramètres.") from e
+        # Ollama is often simply not running yet — `serve` is headless,
+        # so we can start it ourselves and retry once before giving up.
+        # A timeout means the server is up but the model is slow: restarting
+        # would not help, the fix is a longer AI timeout or a lighter model.
+        if getattr(e, "kind", "") != "timeout" and provider == "ollama" and _ensure_local_server(provider):
+            try:
+                r = _post(url, headers, body, timeout=max(_timeout(), 120))
+            except AIError as e2:
+                e, r = e2, None
+        else:
+            r = None
+        if r is None:
+            if getattr(e, "kind", "") == "timeout":
+                raise AIError(f"{_provider_name(provider)} met trop de temps à répondre. "
+                              "Augmente « Délai IA » dans Paramètres ou choisis un modèle plus léger.") from e
+            raise AIError(f"{_provider_name(provider)} inaccessible. Démarre son serveur local et vérifie l'adresse dans Paramètres.") from e
     if r.status_code >= 400:
         raise AIError(_explain_http(provider, r.status_code, r.text) +
                       (" Pour analyser une capture, charge un modèle avec vision." if image else ""))
@@ -392,6 +519,8 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
     if primary in LOCAL_PROVIDERS:
         p_keys = p_keys or [""]
     p_model = (cfg["models"].get(primary) or "").strip()
+    if not p_model and primary in LOCAL_PROVIDERS:
+        p_model = _auto_pick_local_model(primary, want_vision=bool(b64_png))
     for k in p_keys:
         candidates.append((primary, k, p_model))
 

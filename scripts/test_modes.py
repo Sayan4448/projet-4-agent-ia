@@ -440,6 +440,47 @@ class ModesTests(unittest.TestCase):
             with patch.object(ai_client, "_get", return_value=response):
                 self.assertEqual(ai_client.list_models(provider), ["vision"])
 
+    def test_ollama_empty_model_auto_picks_vision_and_persists(self):
+        settings.save({"provider": "ollama", "models": {"ollama": ""}})
+        tags = Mock(status_code=200)
+        tags.json.return_value = {"models": [
+            {"name": "a-text:7b", "capabilities": ["completion"]},
+            {"name": "nomic-embed-text:latest", "capabilities": ["embedding"]},
+            {"name": "b-vision-caption:1b", "capabilities": ["completion", "vision"], "size": 100},
+            {"name": "z-vision:12b", "capabilities": ["completion", "vision", "tools"], "size": 999},
+        ]}
+        with patch.object(ai_client, "_get", return_value=tags):
+            with patch.object(ai_client, "_call_provider_single", return_value="ok") as call:
+                text, used = ai_client.chat_with_fallback("ollama", "hello", b64_png="IMG")
+        self.assertEqual((text, used), ("ok", "ollama"))
+        self.assertEqual(call.call_args.args[:3], ("ollama", "", "z-vision:12b"))
+        self.assertEqual(settings.load()["models"]["ollama"], "z-vision:12b")
+
+    def test_ollama_auto_pick_returns_empty_when_only_embeddings(self):
+        tags = Mock(status_code=200)
+        tags.json.return_value = {"models": [
+            {"name": "nomic-embed-text:latest", "capabilities": ["embedding"]}]}
+        with patch.object(ai_client, "_get", return_value=tags):
+            self.assertEqual(ai_client._auto_pick_local_model("ollama", want_vision=True), "")
+
+    def test_ollama_autostart_retries_failed_request_once(self):
+        ok = Mock(status_code=200)
+        ok.json.return_value = {"message": {"content": "OK"}}
+        with patch.object(ai_client, "_post",
+                          side_effect=[ai_client.AIError("conn refused"), ok]) as post:
+            with patch.object(ai_client, "_ensure_local_server", return_value=True) as ensure:
+                text = ai_client._call_provider_single("ollama", "", "m", "sys", "prompt", None, False)
+        self.assertEqual(text, "OK")
+        self.assertEqual(post.call_count, 2)
+        ensure.assert_called_once_with("ollama")
+
+    def test_ollama_still_down_reports_friendly_error(self):
+        with patch.object(ai_client, "_post", side_effect=ai_client.AIError("conn refused")):
+            with patch.object(ai_client, "_ensure_local_server", return_value=False):
+                with self.assertRaises(ai_client.AIError) as ctx:
+                    ai_client._call_provider_single("ollama", "", "m", "sys", "prompt", None, False)
+        self.assertIn("inaccessible", str(ctx.exception))
+
     def test_cursor_event_is_acknowledged_before_action(self):
         events = []
         def emit(event, **kw):

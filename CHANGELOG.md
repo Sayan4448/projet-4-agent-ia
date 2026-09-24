@@ -3,6 +3,20 @@
 > **Renumérotation bêta** : le projet reste en bêta — les anciennes versions
 > `1.x` ont été renumérotées `0.1x` (1.0 → 0.10, 1.9.5 → 0.19.5, 2.0 → 0.20).
 
+## Non publié
+
+- **Ollama réparé de bout en bout** : le serveur est relancé automatiquement
+  quand il est arrêté (`ollama serve`, sans fenêtre), un modèle installé est
+  choisi automatiquement quand le champ est vide (vision + chat de préférence,
+  le plus léger d'abord — les modèles « caption » comme moondream et les
+  proxies distants sont écartés), `think: false` évite les réponses vides des
+  modèles à raisonnement, et le délai local passe à 120 s pour couvrir le
+  chargement à froid (~90 s pour un 12B). Validé en réel : réponse image
+  correcte en ~9 s via `gemma4:12b`.
+- **Erreurs locales honnêtes** : un délai dépassé (« modèle trop lent,
+  augmente Délai IA ») n'est plus rapporté comme « serveur inaccessible »,
+  et inversement.
+
 ## 0.50.0 (bêta)
 
 - **Correctif « tapé mais jamais envoyé »** : chaque Entrée virtuelle portait le

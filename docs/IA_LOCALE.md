@@ -2,7 +2,12 @@
 
 Le mode local n’exige pas de clé API. Une clé facultative peut être renseignée si
 votre serveur est protégé. La liste des modèles provient du serveur réellement configuré.
-L’application ne télécharge ni ne démarre des modèles sans votre intervention.
+L’application ne télécharge jamais de modèle sans votre intervention. En revanche,
+pour éviter les faux départs : **Ollama est relancé automatiquement** si son
+serveur est arrêté (`ollama serve`, sans fenêtre) et, si le champ modèle est
+resté vide, **un modèle installé est choisi automatiquement** — un modèle vision
+compatible chat quand une capture est jointe, le plus léger d’abord. Le choix
+reste modifiable dans le sélecteur.
 
 ## Ollama
 
@@ -42,8 +47,14 @@ La qualité de contrôle varie beaucoup selon le modèle et sa quantification.
 - Une session locale ne bascule pas vers les clés cloud enregistrées.
 - Une adresse locale personnalisée peut pointer vers un autre PC : les captures seront
   alors envoyées à ce PC. Utiliser l’adresse souhaitée et un réseau approprié.
-- **Connexion refusée** : démarrer le serveur, vérifier le port et le pare-feu.
+- **Connexion refusée** : Ollama est relancé automatiquement ; sinon démarrer le
+  serveur, vérifier le port et le pare-feu.
+- **Réponse vide** : les modèles « thinking » reçoivent `think: false`
+  automatiquement ; si un modèle reste muet, en choisir un autre.
+- **Délai dépassé** : le premier appel paie le chargement du modèle (jusqu’à
+  ~90 s pour un gros modèle) ; le plancher local est de 120 s.
 - **Liste vide** : télécharger/charger un modèle et vérifier le serveur sélectionné.
 - **Erreur image/vision** : sélectionner un modèle compatible images.
 - **Trop lent / mémoire insuffisante** : modèle plus petit, quantification adaptée ou mode éco.
-- Le délai HTTP actuel est de 90 secondes ; le bouton Stop reste disponible pendant l’attente.
+- Le délai HTTP est réglable (« Délai IA », plancher de 120 s en local pour le
+  chargement des modèles) ; le bouton Stop reste disponible pendant l’attente.
