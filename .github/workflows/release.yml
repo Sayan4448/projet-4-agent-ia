@@ -29,9 +29,13 @@ jobs:
       - name: Smoke test packaged browser
         shell: pwsh
         run: |
-          & .\dist\AgentScreen.exe --self-test-browser "$env:TEMP\projet4-browser-check.json"
+          # `&` doesn't wait for a GUI-subsystem exe and $LASTEXITCODE stays
+          # unset — Start-Process -Wait gives the real exit code
+          $p = Start-Process -FilePath .\dist\AgentScreen.exe `
+            -ArgumentList '--self-test-browser', "$env:TEMP\projet4-browser-check.json" `
+            -Wait -PassThru
           Get-Content "$env:TEMP\projet4-browser-check.json" -ErrorAction SilentlyContinue
-          if ($LASTEXITCODE -ne 0) { throw "Packaged browser self-test failed" }
+          if ($p.ExitCode -ne 0) { throw "Packaged browser self-test failed (exit $($p.ExitCode))" }
       - uses: actions/upload-artifact@v4
         with:
           name: Projet4-AgentIA-Windows
