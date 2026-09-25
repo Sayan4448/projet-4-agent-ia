@@ -5,11 +5,13 @@ import tempfile
 
 
 def browser_check(report):
-    from . import browser_mode, __version__
-    original = browser_mode.data_dir
+    from . import __version__
     result = {"version": __version__, "ok": False}
-    session = browser_mode.BrowserSession()
+    session = None
     try:
+        from . import browser_mode
+        original = browser_mode.data_dir
+        session = browser_mode.BrowserSession()
         with tempfile.TemporaryDirectory() as tmp:
             browser_mode.data_dir = lambda: Path(tmp)
             try:
@@ -37,7 +39,8 @@ def browser_check(report):
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
     finally:
-        browser_mode.data_dir = original
+        if session is not None:
+            browser_mode.data_dir = original
         try:
             output = Path(report)
             output.parent.mkdir(parents=True, exist_ok=True)
