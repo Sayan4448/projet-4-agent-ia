@@ -481,6 +481,34 @@ class ModesTests(unittest.TestCase):
                     ai_client._call_provider_single("ollama", "", "m", "sys", "prompt", None, False)
         self.assertIn("inaccessible", str(ctx.exception))
 
+    def test_browser_check_falls_back_to_headless(self):
+        from agent_screen import diagnostics
+        calls = []
+        page = Mock()
+        page.locator.return_value.input_value.return_value = "Bonjour été"
+
+        class FakeSession:
+            def __init__(self):
+                self.page = page
+            def start(self, headless=False):
+                calls.append(headless)
+                if not headless:
+                    raise RuntimeError("no display")
+            def screenshot(self, *args):
+                pass
+            def execute(self, *args):
+                pass
+            def close(self):
+                pass
+
+        report = Path(self.tmp.name) / "check.json"
+        with patch.object(browser_mode, "BrowserSession", side_effect=lambda: FakeSession()):
+            self.assertTrue(diagnostics.browser_check(str(report)))
+        self.assertEqual(calls, [False, True])
+        result = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(result["mode"], "headless")
+        self.assertIn("headed_error", result)
+
     def test_cursor_event_is_acknowledged_before_action(self):
         events = []
         def emit(event, **kw):

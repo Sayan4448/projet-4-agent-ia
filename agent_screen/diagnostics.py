@@ -13,7 +13,18 @@ def browser_check(report):
         with tempfile.TemporaryDirectory() as tmp:
             browser_mode.data_dir = lambda: Path(tmp)
             try:
-                session.start()
+                try:
+                    session.start()
+                    result["mode"] = "headed"
+                except Exception as e:
+                    # CI runners have no reliable interactive display — a
+                    # headless run still validates the packaged driver,
+                    # page control, clicks and unicode typing.
+                    result["headed_error"] = f"{type(e).__name__}: {e}"
+                    session.close()
+                    session = browser_mode.BrowserSession()
+                    session.start(headless=True)
+                    result["mode"] = "headless"
                 session.page.set_content("<input style='position:absolute;left:40px;top:40px;width:300px;height:80px' id='check'>")
                 session.screenshot(1280, 60, True)
                 session.execute("mouse_click", {"x": 100, "y": 70})

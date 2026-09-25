@@ -32,14 +32,14 @@ class BrowserSession:
         self.origin = (0, 0)
         self.size = (1280, 800)
 
-    def start(self):
+    def start(self, headless=False):
         from playwright.sync_api import sync_playwright
         self.engine = sync_playwright().start()
         errors = []
         for channel in ("msedge", "chrome"):
             try:
                 self.context = self.engine.chromium.launch_persistent_context(
-                    str(data_dir() / "browser-profile"), channel=channel, headless=False,
+                    str(data_dir() / "browser-profile"), channel=channel, headless=headless,
                     viewport={"width": 1280, "height": 800}, accept_downloads=False,
                     args=["--disable-features=ExternalProtocolDialog"])
                 break
