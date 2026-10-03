@@ -15,10 +15,13 @@
   une seule unité partout (crans de molette, annoncée au modèle) ; défiler sans
   coordonnées ne plante plus (milieu de la fenêtre active) ; un défilement qui ne
   bouge rien le dit après un essai physique discret ; le mode navigateur défile
-  sous le point visé. Banc d'essai réel : `scripts/smoke_scroll.py`.
+  sous le point visé ; dans les applis Chromium (Discord, Brave, Edge…) un cran
+  virtuel défilait deux fois trop (267 px contre 134 pour un vrai cran), corrigé.
+  Bancs d'essai réels : `scripts/smoke_scroll.py`, `scripts/smoke_typing.py`.
 - **Automatisations** : tâches enregistrées (ouvrir une appli/un lien sans appel
-  IA, lien Discord ouvert directement dans le groupe, objectif agent facultatif),
-  à la demande ou au démarrage de Windows.
+  IA, lien Discord ouvert directement dans le groupe — Discord est remis au
+  premier plan même s'il était réduit —, objectif agent facultatif), à la
+  demande ou au démarrage de Windows.
 - **Interface** : onglets plats, barres de défilement fines, cases à cocher et
   boutons radio redessinés, boutons et champs sans relief avec anneau d'accent au
   focus, listes aérées, message d'accueil dans le Chat vide.

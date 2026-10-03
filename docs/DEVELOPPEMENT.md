@@ -40,6 +40,7 @@ nécessaire pour lancer l’interface native.
 | `scripts/test_*.py` | Tests unitaires/régression |
 | `scripts/smoke_desktop.py` | Vérification interactive de l’UI et de la saisie |
 | `scripts/smoke_scroll.py` | Défilement vérifié sur de vraies fenêtres (Tk, Chromium) |
+| `scripts/smoke_typing.py` | Frappe et envoi vérifiés sur une vraie page Chromium |
 | `scripts/measure_icons.py` | Mesure optionnelle utilisant un modèle réel et du quota |
 | `scripts/make_icon.py`, `assets/app.ico` | Génération et ressource de l’icône |
 | `scripts/build_windows.ps1` | Compilation Windows EXE/MSI et sommes SHA-256 |
