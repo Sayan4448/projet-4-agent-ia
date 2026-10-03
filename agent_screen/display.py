@@ -398,21 +398,32 @@ def capture_frame():
     return _capture_screen().convert("RGB")
 
 
-def screen_fingerprint(window_title: str | None = None, size=(16, 9)) -> tuple:
+# Grid for "did this action change anything?": ~4 px cells on a 1080p screen,
+# fine enough to see one typed character (see agent._changed).
+FINE = (480, 270)
+
+
+def screen_fingerprint(window_title: str | None = None, size=(16, 9),
+                       foreground: bool = False) -> tuple:
     """Tiny grayscale sample of the screen (or one window) for local comparison.
 
     Never encoded, never saved: the autonomous watch loop calls this every few
     seconds for up to an hour, so it must stay cheap and leave no files behind.
+    `foreground` samples only the active window, so a video or a chat moving
+    in another app is not mistaken for the effect of the agent's action.
     """
     from PIL import Image
     img = None
-    if window_title:
-        found = find_window(window_title)
-        if found:
-            try:
-                img = _capture_hwnd(found[0], found[1])
-            except Exception:  # noqa: BLE001 - fall back to the whole screen
-                img = None
+    found = find_window(window_title) if window_title else None
+    if found is None and foreground and os.name == "nt":
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if hwnd:
+            found = (hwnd, get_window_rect_by_hwnd(hwnd))
+    if found and found[1]["w"] > 0 and found[1]["h"] > 0:
+        try:
+            img = _capture_hwnd(found[0], found[1])
+        except Exception:  # noqa: BLE001 - fall back to the whole screen
+            img = None
     if img is None:
         img = _capture_screen()
     small = img.convert("L").resize(size, Image.BILINEAR)

@@ -161,8 +161,8 @@ ACTIONS = {
     "mouse_click": Action("mouse_click(x,y,button='left|right|middle',clicks=1)", pixel=True),
     "mouse_double_click": Action("mouse_double_click(x,y)", pixel=True),
     "mouse_drag": Action("mouse_drag(x,y)", pixel=True),
-    "mouse_scroll": Action("mouse_scroll(amount positive=up, optional x,y)", pixel=True),
-    "mouse_hscroll": Action("mouse_hscroll(amount positive=right, optional x,y)", pixel=True),
+    "mouse_scroll": Action("mouse_scroll(amount in wheel notches: -3 = down a little, -10 = one page, positive = up; optional x,y = a point INSIDE the list/pane to scroll)", pixel=True),
+    "mouse_hscroll": Action("mouse_hscroll(amount in wheel notches, positive = right; optional x,y)", pixel=True),
     "type_text": Action("type_text(text)"),
     "press_key": Action("press_key(key like enter,esc,tab,ctrl,alt,win,shift,space,"
                         "backspace,delete,up,down,left,right,home,end,pageup,pagedown,f1..f12)"),
@@ -343,8 +343,9 @@ def _extract_json(text: str):
     return None
 
 
-def _image_fingerprint(encoded):
-    """Tiny local perceptual sample used only to avoid paid idle calls."""
+def _image_fingerprint(encoded, size=(16, 9)):
+    """Local grayscale sample of a model image: tiny to avoid paid idle calls,
+    fine (4 px cells) to tell whether a step changed anything."""
     import base64
     import io
     from PIL import Image
@@ -352,7 +353,7 @@ def _image_fingerprint(encoded):
     if not item:
         return ()
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(item))).convert("L").resize((16, 9))
+        image = Image.open(io.BytesIO(base64.b64decode(item))).convert("L").resize(size)
         pixels = getattr(image, "get_flattened_data", image.getdata)
         return tuple(pixels())
     except (ValueError, OSError):
@@ -363,6 +364,21 @@ def _fingerprint_distance(first, second):
     if not first or len(first) != len(second):
         return 255
     return sum(abs(a - b) for a, b in zip(first, second)) / len(first)
+
+
+def _changed(first, second) -> bool:
+    """Did an action visibly change the screen, between two fine samples?
+
+    Counts the cells that clearly moved instead of averaging the whole screen.
+    Measured on a real page (480x270 grid): one typed character moves 14
+    cells, 'salut' 54, a sent message 67, one wheel notch 9000 — while the
+    screen-wide mean used before read 0.02 for 'salut' against a threshold
+    of 6, so every typing, send and small scroll was reported as ignored.
+    Below 8 cells is a blinking caret; a delta under 8 is JPEG noise.
+    """
+    if not first or len(first) != len(second):
+        return True
+    return sum(1 for a, b in zip(first, second) if abs(a - b) > 8) >= 8
 
 
 class RunBusy(RuntimeError):
@@ -578,6 +594,39 @@ class AgentRun:
         self.geometry = capture[2] if len(capture) > 2 else None
         return b64
 
+    @staticmethod
+    def _sample(window=None) -> tuple:
+        """Fine sample of the target window, taken right before and right after
+        an action to see whether it visibly did anything."""
+        return display.screen_fingerprint(window, display.FINE, foreground=True)
+
+    def _scroll_verified(self, name: str, args: dict) -> dict:
+        """Scroll with a "did anything move?" check. At the end of a list, or
+        with the point outside the scrollable pane, the wheel is accepted and
+        nothing happens: the model used to get a plain success and scroll
+        again forever. A window that ignores posted wheel messages gets one
+        discreet physical retry (cursor restored)."""
+        window = self.window_title if self.window_mode else None
+        virtual = self.virtual_input and not self.game_mode
+        fp_pre = self._sample(window)
+        result = _virtual_action(name, args) if virtual else execute_action(name, args)
+        self._stop.wait(0.35)               # smooth scrolling settles
+        if _changed(fp_pre, self._sample(window)):
+            return result
+        if virtual and self.virtual_fallback and args.get("x") is not None:
+            try:
+                result = input_control.transient_scroll(
+                    args["amount"], args["y"], args["x"], horizontal=name == "mouse_hscroll")
+                self._stop.wait(0.35)
+                if _changed(fp_pre, self._sample(window)):
+                    return result
+            except Exception:  # noqa: BLE001 - fall through to the honest report
+                pass
+        return {**result, "moved": False, "note": (
+            "Nothing moved: this area is already at its end in that direction, or the point "
+            "is not over the scrollable list/pane. Give x,y INSIDE the area to scroll, try the "
+            "other direction, or use press_key pagedown/pageup/end/home after clicking in it.")}
+
     def _type_verified(self, text: str, step_i: int) -> dict:
         """type_text with a "did it land?" check: fingerprint the screen just
         before and just after the keystrokes. A field that swallowed every
@@ -590,7 +639,7 @@ class AgentRun:
         if self.stopped:
             return {"ok": False, "error": "stopped"}
         window = self.window_title if self.window_mode else None
-        fp_pre = display.screen_fingerprint(window)
+        fp_pre = self._sample(window)
         virtual = self.virtual_input and not self.game_mode
         result = (input_control.virtual_type(text) if virtual
                   else input_control.type_text(text))
@@ -598,8 +647,7 @@ class AgentRun:
         if not typed:
             return result
         self._stop.wait(self.type_settle)   # let the field render the new text
-        fp_post = display.screen_fingerprint(window)
-        if _fingerprint_distance(fp_pre, fp_post) >= 6:
+        if _changed(fp_pre, self._sample(window)):
             self._typing_confirmed = True
             return result
         if virtual and self.virtual_fallback:
@@ -612,8 +660,7 @@ class AgentRun:
                 "⚠ Virtual typing ignored — one discreet physical retry."))
             try:
                 retry = input_control.transient_type(text)
-                fp_post = display.screen_fingerprint(window)
-                if _fingerprint_distance(fp_pre, fp_post) >= 6:
+                if _changed(fp_pre, self._sample(window)):
                     self._typing_confirmed = True
                     return retry
             except Exception:  # noqa: BLE001 - fall through to honest failure
@@ -643,7 +690,7 @@ class AgentRun:
         window = self.window_title if self.window_mode else None
         key = str(args.get("key", "enter"))
         virtual = self.virtual_input and not self.game_mode
-        fp_pre = display.screen_fingerprint(window)
+        fp_pre = self._sample(window)
         result = None
         for attempt in (1, 2):
             res = input_control.virtual_press_key(key) if virtual else None
@@ -651,7 +698,7 @@ class AgentRun:
                 res = input_control.press_key(key)
             result = result or res
             self._stop.wait(0.25)          # let the app commit the send
-            if _fingerprint_distance(fp_pre, display.screen_fingerprint(window)) >= 6:
+            if _changed(fp_pre, self._sample(window)):
                 return result
             if attempt == 1:
                 self.history.append({"step": step_i, "summary": (
@@ -838,7 +885,7 @@ class AgentRun:
                     extra = " User guidance (follow it now): " + " | ".join(user_notes)
                     for note in user_notes:
                         self.emit("guidance", text=note)
-                fp_before = _image_fingerprint(b64)
+                fp_before = _image_fingerprint(b64, (320, 180))
 
                 self.current_step = i
                 step = {"step": i, "thought": "", "actions": [], "done": False, "summary": ""}
@@ -1117,6 +1164,9 @@ class AgentRun:
                         if (self.virtual_input and not self.game_mode and not self.browser
                                 and name in ("mouse_move_rel", "mouse_down", "mouse_up", "key_down", "key_up")):
                             raise ValueError("Cette action physique exige le mode jeu explicite.")
+                        if name in ("mouse_scroll", "mouse_hscroll"):
+                            # one unit everywhere (virtual, physical, browser)
+                            args = {**args, "amount": input_control.wheel_notches(args.get("amount"))}
                         self._visualize(name, args)
                         if self.stopped:
                             outcome = "stopped"
@@ -1164,6 +1214,8 @@ class AgentRun:
                             # text — Electron apps can swallow every WM_CHAR
                             # while the post reports nothing
                             result = self._type_verified(str(args.get("text", "")), i)
+                        elif name in ("mouse_scroll", "mouse_hscroll") and not self.browser:
+                            result = self._scroll_verified(name, args)
                         elif (name == "press_key" and self._typing_confirmed
                               and str(args.get("key", "")).lower() in ("enter", "return")
                               and not self.browser):
@@ -1250,7 +1302,7 @@ class AgentRun:
                 # did this step's actions visibly change anything? feeds the
                 # anti-spam guard so an ineffective identical click gets refused
                 self._screen_changed_last_step = (
-                    _fingerprint_distance(fp_before, _image_fingerprint(b64)) >= 6)
+                    _changed(fp_before, _image_fingerprint(b64, (320, 180))))
                 # feed the dead-zone memory: ineffective aims accumulate,
                 # an effective step clears the zone entirely
                 if self._screen_changed_last_step:
@@ -1366,6 +1418,8 @@ def _summarize(name: str, args: dict, result) -> str:
     line = f"{name}({', '.join(f'{k}={v}' for k, v in args.items())})"
     if res.get("ok") is False:
         return f"{line} -> FAILED: {res.get('error') or res.get('stderr', '')}"
+    if res.get("note"):
+        return f"{line} -> {res['note']}"
     return line
 
 

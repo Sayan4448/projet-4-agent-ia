@@ -56,6 +56,8 @@ MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
 MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_WHEEL = 0x0800
+MOUSEEVENTF_HWHEEL = 0x1000
 
 # scan codes for the keys games care about
 SCAN = {
@@ -191,6 +193,7 @@ if os.name == "nt":
         ("SetForegroundWindow", [wintypes.HWND], wintypes.BOOL),
         ("IsWindow", [wintypes.HWND], wintypes.BOOL),
         ("GetWindowThreadProcessId", [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD),
+        ("GetWindowRect", [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL),
     ):
         _fn = getattr(ctypes.windll.user32, _name)
         _fn.argtypes, _fn.restype = _args, _result
@@ -340,24 +343,85 @@ def virtual_mouse_drag(x: int, y: int, duration: float = 0.4) -> dict:
     return {"virtual_dragged_to": [int(x), int(y)]}
 
 
-def virtual_mouse_scroll(amount: int, y=None, x=None) -> dict:
-    px, py = _virtual_xy(x, y)
-    hwnd, cx, cy = _point_target(px, py)
+def wheel_notches(amount) -> int:
+    """A model's scroll amount as wheel notches (1 notch ~ 3 lines, 10 ~ a page).
+
+    The unit is stated in the action vocabulary, but models also answer in
+    pixels (-300, -500…): anything beyond 20 is read as pixels, ~100 per notch.
+    """
+    n = int(float(amount or 0))
+    if abs(n) > 20:
+        n = int(n / 100)
+    n = max(-20, min(20, n))
+    if n == 0:
+        raise ValueError("amount doit être non nul : négatif = vers le bas, positif = vers le haut.")
+    return n
+
+
+def _active_window_center():
+    rect = wintypes.RECT()
+    hwnd = ctypes.windll.user32.GetForegroundWindow()
+    if not hwnd or not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        raise ValueError("Indique x,y : aucune fenêtre active où faire défiler.")
+    return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
+
+
+def _virtual_wheel(msg, amount, x, y) -> int:
+    n = wheel_notches(amount)
+    if x is None and y is None and _v_pos[0] is None:
+        # x,y are optional: "scroll down" with no cursor yet means the page
+        # the user is looking at, i.e. the middle of the active window
+        px, py = _active_window_center()
+    else:
+        px, py = _virtual_xy(x, y)
+    hwnd, _cx, _cy = _point_target(px, py)
     if not hwnd:
         raise OSError("Aucune fenêtre sous le point visé.")
-    delta = max(-5, min(5, int(amount))) * WHEEL_DELTA
-    _post(hwnd, WM_MOUSEWHEEL, ((delta & 0xFFFF) << 16), _lparam(px, py))
-    return {"virtual_scrolled": int(amount)}
+    # wheel messages carry SCREEN coordinates, unlike the other mouse messages
+    _post(hwnd, msg, (((n * WHEEL_DELTA) & 0xFFFF) << 16), _lparam(px, py))
+    return n
+
+
+def virtual_mouse_scroll(amount: int, y=None, x=None) -> dict:
+    return {"virtual_scrolled": _virtual_wheel(WM_MOUSEWHEEL, amount, x, y)}
 
 
 def virtual_mouse_hscroll(amount: int, y=None, x=None) -> dict:
-    px, py = _virtual_xy(x, y)
-    hwnd, cx, cy = _point_target(px, py)
-    if not hwnd:
-        raise OSError("Aucune fenêtre sous le point visé.")
-    delta = max(-5, min(5, int(amount))) * WHEEL_DELTA
-    _post(hwnd, WM_MOUSEHWHEEL, ((delta & 0xFFFF) << 16), _lparam(px, py))
-    return {"virtual_hscrolled": int(amount)}
+    return {"virtual_hscrolled": _virtual_wheel(WM_MOUSEHWHEEL, amount, x, y)}
+
+
+def _send_wheel(notches: int, horizontal: bool = False) -> None:
+    """One real wheel event at the cursor. pyautogui is not used here: on
+    Windows its scroll(3) sends 3/120 of a notch and its hscroll scrolls
+    vertically, so neither moved anything."""
+    if os.name != "nt":
+        (pyautogui.hscroll if horizontal else pyautogui.scroll)(notches)
+        return
+    inp = _INPUT()
+    inp.type = INPUT_MOUSE
+    inp.mi = _MOUSEINPUT(0, 0, (notches * WHEEL_DELTA) & 0xFFFFFFFF,
+                         MOUSEEVENTF_HWHEEL if horizontal else MOUSEEVENTF_WHEEL, 0, 0)
+    if ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp)) != 1:
+        raise OSError("Windows a refusé le défilement simulé.")
+
+
+def transient_scroll(amount, y: int, x: int, horizontal: bool = False) -> dict:
+    """Physical wheel for windows that ignore posted wheel messages: the real
+    cursor goes to the point, the wheel turns, the cursor comes straight back."""
+    n = wheel_notches(amount)
+    if os.name != "nt":
+        return (mouse_hscroll if horizontal else mouse_scroll)(n, y, x)
+    user = ctypes.windll.user32
+    old = wintypes.POINT()
+    user.GetCursorPos(ctypes.byref(old))
+    try:
+        user.SetCursorPos(int(x), int(y))
+        time.sleep(0.03)
+        _send_wheel(n, horizontal)
+        time.sleep(0.03)        # the wheel event reads the cursor position
+    finally:
+        user.SetCursorPos(old.x, old.y)
+    return {"transient_scrolled": n}
 
 
 def transient_click(x: int, y: int, button: str = "left") -> dict:
@@ -532,21 +596,27 @@ def mouse_drag(x: int, y: int, duration: float = 0.4) -> dict:
     return {"dragged_to": [x, y]}
 
 
-def mouse_scroll(amount: int, y: int = None, x: int = None) -> dict:
-    amount = int(amount)
+def _wheel_at(notches: int, x, y, horizontal: bool = False) -> None:
     if x is not None and y is not None:
         pyautogui.moveTo(int(x), int(y))
-    pyautogui.scroll(amount)
-    return {"scrolled": amount}
+        time.sleep(0.03)    # Windows routes the wheel to the window under the
+                            # cursor: sent in the same instant, it still goes
+                            # to the old one (measured: nothing scrolled)
+    _send_wheel(notches, horizontal)
+
+
+def mouse_scroll(amount: int, y: int = None, x: int = None) -> dict:
+    """Vertical scroll in wheel notches: positive = up."""
+    n = wheel_notches(amount)
+    _wheel_at(n, x, y)
+    return {"scrolled": n}
 
 
 def mouse_hscroll(amount: int, y=None, x=None) -> dict:
-    """Horizontal scroll: positive = right."""
-    amount = int(amount)
-    if x is not None and y is not None:
-        pyautogui.moveTo(int(x), int(y))
-    pyautogui.hscroll(amount)
-    return {"hscrolled": amount}
+    """Horizontal scroll in wheel notches: positive = right."""
+    n = wheel_notches(amount)
+    _wheel_at(n, x, y, horizontal=True)
+    return {"hscrolled": n}
 
 
 def mouse_position() -> dict:
