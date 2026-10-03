@@ -101,8 +101,8 @@ def tk_checks():
         check("virtual scroll right, Tk", bool(d and d > 0), err or f"moved {d:.4f}")
 
         input_control.reset_virtual_input()
-        ctypes.windll.user32.SetForegroundWindow(wintypes.HWND(st["hwnd"]))
-        time.sleep(0.3)
+        agent.execute_action("focus_window", {"title": "smoke_scroll"})
+        time.sleep(0.5)
         active = ctypes.windll.user32.GetForegroundWindow()
         if ctypes.windll.user32.GetAncestor(wintypes.HWND(st["hwnd"]), 2) != active:
             # Windows refused the focus change (someone is using the PC):
@@ -149,6 +149,17 @@ def browser_checks():
             input_control.virtual_mouse_scroll(-3, cy, cx)
             y = scroll_y()
             check("virtual scroll down, Chromium window", y >= 100, f"scrollY={y}")
+            page.evaluate("scrollTo(0,0)")
+            time.sleep(0.3)
+            input_control.virtual_mouse_scroll(-1, cy, cx)
+            virtual = scroll_y()
+            page.evaluate("scrollTo(0,0)")
+            time.sleep(0.3)
+            input_control.transient_scroll(-1, cy, cx)        # a real wheel notch
+            real = scroll_y()
+            check("one virtual notch scrolls as far as a real one, Chromium",
+                  real > 0 and abs(virtual - real) <= real * 0.25,
+                  f"virtual={virtual}px real={real}px")
         else:
             print("SKIP virtual scroll, Chromium window: another window covers it")
         page.evaluate("scrollTo(0,0)")

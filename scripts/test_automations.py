@@ -33,9 +33,10 @@ class AutomationTests(unittest.TestCase):
             self.assertEqual(automations.discord_link(other), "")
 
     def test_targets_are_opened_without_the_ai(self):
-        with patch.object(automations.os, "startfile", create=True) as start:
+        with patch.object(automations.os, "startfile", create=True) as start,                 patch("agent_screen.apps.focus_app", return_value={"ok": True}) as front:
             self.assertTrue(automations.open_target("https://discord.com/channels/@me/42")["ok"])
         start.assert_called_once_with("discord://-/channels/@me/42")
+        front.assert_called_once_with("discord")     # the link alone leaves Discord minimised
         with patch("agent_screen.input_control.open_url", return_value={"ok": True}) as web, \
                 patch("agent_screen.apps.launch_app", return_value={"ok": True}) as app:
             automations.open_target("https://example.com/page")

@@ -379,6 +379,18 @@ def _active_window_center():
     return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
 
 
+def _wheel_owner(hwnd):
+    """Chromium (Discord, Brave, Edge, every Electron app) covers its page with
+    a child window that also forwards the wheel to its parent: posting to that
+    child scrolls twice (measured: 267 px per notch against 134 for a real
+    wheel). Its top-level window handles the wheel once."""
+    name = ctypes.create_unicode_buffer(64)
+    ctypes.windll.user32.GetClassNameW(ctypes.c_void_p(hwnd), name, 64)
+    if name.value == "Chrome_RenderWidgetHostHWND":
+        return ctypes.windll.user32.GetAncestor(ctypes.c_void_p(hwnd), GA_ROOT) or hwnd
+    return hwnd
+
+
 def _virtual_wheel(msg, amount, x, y) -> int:
     n = wheel_notches(amount)
     if x is None and y is None and _v_pos[0] is None:
@@ -390,6 +402,7 @@ def _virtual_wheel(msg, amount, x, y) -> int:
     hwnd, _cx, _cy = _point_target(px, py)
     if not hwnd:
         raise OSError("Aucune fenêtre sous le point visé.")
+    hwnd = _wheel_owner(hwnd)
     # wheel messages carry SCREEN coordinates, unlike the other mouse messages
     _post(hwnd, msg, (((n * WHEEL_DELTA) & 0xFFFF) << 16), _lparam(px, py))
     return n

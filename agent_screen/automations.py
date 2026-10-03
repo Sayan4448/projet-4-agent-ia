@@ -15,6 +15,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 import uuid
 
 from .paths import data_dir
@@ -108,15 +109,22 @@ def discord_link(target: str) -> str:
 def open_target(target: str) -> dict:
     """Open what an automation points at. No AI, no screenshot."""
     target = str(target or "").strip()
+    from . import apps, input_control
     link = discord_link(target)
     if link:
         try:
             os.startfile(link)          # handled by the installed Discord app
-            return {"ok": True, "opened": link}
         except (OSError, AttributeError):
             # Discord not installed (or not Windows): the web version still works
             target = link.replace("discord://-", "https://discord.com", 1)
-    from . import apps, input_control
+        else:
+            # the link navigates Discord but leaves it minimised or behind the
+            # other windows (measured); it may also still be starting
+            for _ in range(20):
+                if apps.focus_app("discord").get("ok"):
+                    break
+                time.sleep(0.5)
+            return {"ok": True, "opened": link}
     if re.match(r"^(https?://|www\.)", target, re.I):
         return input_control.open_url(target)
     return apps.launch_app(target, keyboard_fallback=input_control.start_menu_search)
