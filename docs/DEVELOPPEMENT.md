@@ -25,6 +25,7 @@ nécessaire pour lancer l’interface native.
 | `agent_screen/gui.py` | Interface native, événements, paramètres et Chat |
 | `agent_screen/conversations.py` | Discussions locales, favoris et écriture atomique |
 | `agent_screen/sessions.py` | Historique local des sessions du mode Agent |
+| `agent_screen/automations.py` | Automatisations enregistrées, liens Discord, démarrage Windows |
 | `agent_screen/media.py` | Captures temporelles bornées, enregistrement vidéo MP4 et analyse audio explicite |
 | `agent_screen/overlay.py` | Curseur transparent aux clics et bandeau d’activité |
 | `agent_screen/agent.py` | Boucle IA, vocabulaire d’actions, Stop, lots et historique |
@@ -38,6 +39,7 @@ nécessaire pour lancer l’interface native.
 | `agent_screen/server.py` | Interface HTTP historique facultative, non lancée par l’app native |
 | `scripts/test_*.py` | Tests unitaires/régression |
 | `scripts/smoke_desktop.py` | Vérification interactive de l’UI et de la saisie |
+| `scripts/smoke_scroll.py` | Défilement vérifié sur de vraies fenêtres (Tk, Chromium) |
 | `scripts/measure_icons.py` | Mesure optionnelle utilisant un modèle réel et du quota |
 | `scripts/make_icon.py`, `assets/app.ico` | Génération et ressource de l’icône |
 | `scripts/build_windows.ps1` | Compilation Windows EXE/MSI et sommes SHA-256 |
