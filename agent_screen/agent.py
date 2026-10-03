@@ -815,6 +815,10 @@ class AgentRun:
                        "'message' to converse in the floating bar. Never perform purchases, send external "
                        "messages, delete data, change security settings, or expose private data unless the "
                        "user's goal or live guidance explicitly authorizes that exact operation.")
+        # Everything identical from one step to the next goes in the system
+        # prompt, ahead of the per-step text: servers reuse an evaluated prefix
+        # (measured locally: 155 s -> 45 s per step; cloud prompt caches too).
+        system += f"\n\nAvailable actions: {vocabulary}{mode_block}\n{chain_rule}"
         try:
             loop_limit = self.autonomous_max_calls if self.autonomous_mode else self.max_steps
             for i in range(1, loop_limit + 1):
@@ -849,8 +853,8 @@ class AgentRun:
                     api_t0 = time.monotonic()
                     reply, eff_prov = chat_with_fallback(
                         self.effective_provider,
-                        prompt=f"{context}{remembered}{self._windows_text()}{self._history_text()}{extra}\n\n"
-                               f"Available actions: {vocabulary}{mode_block}\n{chain_rule}",
+                        prompt=f"{context}{remembered}{self._windows_text()}{self._history_text()}{extra}"
+                               "\nReply ONLY with the JSON object.",
                         system=system,
                         b64_png=request_media,
                         is_json=True,

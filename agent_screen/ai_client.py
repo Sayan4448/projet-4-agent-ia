@@ -13,12 +13,17 @@ import queue
 import shutil
 import subprocess
 import threading
+import time
 
 import requests
 
-from .settings import get_api_key, LOCAL_PROVIDERS
+from .settings import get_api_key, LOCAL_PROVIDERS, LOCAL_PULL_SUGGESTIONS
 
 TIMEOUT = 90
+# A local model answers when it answers: measured 190 s for the first agent
+# call on a 12B vision model without full GPU offload. Stop stays instant
+# (the call is cancellable), so a long floor costs nothing.
+LOCAL_TIMEOUT = 600
 
 ENDPOINTS = {
     "openai": "https://api.openai.com/v1/chat/completions",
@@ -73,6 +78,12 @@ def _explain_http(provider: str, status: int, text: str) -> str:
                 return m.group(1)[:200]
         return ""
 
+    if provider in LOCAL_PROVIDERS:
+        # nothing here is "temporary overload": show what the server said
+        # (out of memory, model not found, no vision…)
+        detail = first([ERR_RE, MSG_RE]) or t[:200]
+        hint = " Choisis un modèle installé (⚙ Paramètres → Charger modèles)." if status == 404 else ""
+        return f"erreur {status} du serveur local : {detail}.{hint}"
     if status in (401, 403):
         detail = first([MSG_RE, '"error_message"\\s*:\\s*"([^"]+)"'])
         base = f"Clé API {name} refusée ({status}). "
@@ -218,31 +229,26 @@ def _call_openai_style(provider: str, api_key: str, model: str, system: str,
             "max_tokens": max_tokens}
     if is_json:
         body["response_format"] = {"type": "json_object"}
-    r = _post(ENDPOINTS[provider],
-              {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-              body)
-    if r.status_code >= 400:
-        # some models reject large max_tokens or response_format: retry once
-        if r.status_code in (400, 422) and max_tokens != SAFE_MAX_TOKENS:
-            return _call_openai_style(provider, api_key, model, system, prompt,
-                                      b64_png, is_json, max_tokens=SAFE_MAX_TOKENS, mime=mime)
-        if r.status_code in (400, 422) and is_json and "response_format" in body:
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    for _ in range(5):
+        r = _post(ENDPOINTS[provider], headers, body)
+        if r.status_code not in (400, 422):
+            break
+        # models disagree on parameters: drop/rename the one the error names
+        low = (r.text or "").lower()
+        if "max_completion_tokens" in low and "max_tokens" in body:
+            body["max_completion_tokens"] = body.pop("max_tokens")   # gpt-5 / o-series
+        elif "temperature" in low and "temperature" in body:
+            body.pop("temperature")
+        elif body.get("max_tokens", SAFE_MAX_TOKENS) != SAFE_MAX_TOKENS:
+            body["max_tokens"] = SAFE_MAX_TOKENS
+        elif "response_format" in body:
             body.pop("response_format")
-            r2 = _post(ENDPOINTS[provider],
-                       {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                       body)
-            if r2.status_code < 400:
-                data = r2.json()
-                content = (data.get("choices") or [{}])[0].get("message", {}).get("content")
-                if isinstance(content, list):
-                    content = "".join(b.get("text", "") for b in content
-                                      if isinstance(b, dict))
-                return (content or "").strip()
-            r = r2
+        else:
+            break
+    if r.status_code >= 400:
         raise AIError(_explain_http(provider, r.status_code, r.text))
-    data = r.json()
-    choice = (data.get("choices") or [{}])[0]
-    msg = choice.get("message") or {}
+    msg = (r.json().get("choices") or [{}])[0].get("message") or {}
     content = msg.get("content")
     if isinstance(content, list):
         content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
@@ -301,8 +307,6 @@ def _call_gemini(api_key: str, model: str, system: str,
     cparts = (cands[0].get("content") or {}).get("parts") or []
     return "".join(p.get("text", "") for p in cparts).strip()
 
-
-import time
 
 _FAILED_KEYS_COOLDOWN = 90.0  # seconds
 _failed_keys: dict = {}
@@ -366,34 +370,37 @@ def _ensure_local_server(provider: str) -> bool:
                          creationflags=flags)
     except Exception:  # noqa: BLE001
         return False
-    deadline = time.time() + 12.0
+    deadline = time.time() + 30.0   # measured: ~15 s on a cold disk
     while time.time() < deadline and not _local_server_up(provider):
         time.sleep(0.4)
     return _local_server_up(provider)
 
 
-def _auto_pick_local_model(provider: str, want_vision: bool) -> str:
+def _can_chat(m: dict) -> bool:
+    """An Ollama /api/tags entry that answers prompts (not embedding-only)."""
+    return bool(set(m.get("capabilities") or ["completion"]) - {"embedding"}
+                and "embed" not in (m.get("name") or "").lower())
+
+
+def _auto_pick_local_model(provider: str) -> str:
     """Pick a model when the selector was left empty: skip embedding-only
-    entries, prefer a vision-capable one when a screenshot is attached.
-    The choice is persisted so the GUI shows what is actually used."""
+    entries and prefer a vision-capable one — the choice is persisted and
+    shared by Chat and Agent, and the agent is blind without vision."""
     def pick():
         if provider == "ollama":
             r = _get(_local_base(provider) + "/api/tags", {})
             if r.status_code >= 400:
                 return ""
             usable = [m for m in (r.json().get("models") or [])
-                      if not m.get("remote_model")
-                      and set(m.get("capabilities") or ["completion"]) - {"embedding"}
-                      and "embed" not in (m.get("name") or "").lower()]
+                      if not m.get("remote_model") and _can_chat(m)]
             if not usable:
                 return ""
-            if want_vision:
-                vision = [m for m in usable if "vision" in (m.get("capabilities") or [])]
-                usable = vision or usable
-                # instruct/chat models expose "tools"; vision specialists like
-                # moondream caption images but return empty chat answers
-                chatty = [m for m in usable if "tools" in (m.get("capabilities") or [])]
-                usable = chatty or usable
+            vision = [m for m in usable if "vision" in (m.get("capabilities") or [])]
+            usable = vision or usable
+            # instruct/chat models expose "tools"; vision specialists like
+            # moondream caption images but return empty chat answers
+            chatty = [m for m in usable if "tools" in (m.get("capabilities") or [])]
+            usable = chatty or usable
             # smallest first: a light model actually answers inside the
             # AI timeout, where a 12B one may not on a machine without GPU
             return min(usable, key=lambda m: (m.get("size") or 0, m.get("name") or "")).get("name") or ""
@@ -433,8 +440,11 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_
         # thinking models burn the whole token budget on `message.thinking`
         # and answer with empty content — agent decisions need the answer
         body["think"] = False
-        body["keep_alive"] = "10m"
-        body["options"] = {"temperature": 0.2, "num_predict": max_tokens}
+        body["keep_alive"] = "30m"
+        # the agent prompt alone is ~2800 tokens: with Ollama's 4096 default the
+        # answer gets cut mid-JSON. One fixed size for every call — changing
+        # num_ctx between Chat and Agent would reload the model each time.
+        body["options"] = {"temperature": 0.2, "num_predict": max_tokens, "num_ctx": 8192}
         url = _local_base(provider) + "/api/chat"
     else:
         if media:
@@ -445,26 +455,32 @@ def _call_local(provider, key, model, system, prompt, image, is_json, mime, max_
             body["response_format"] = {"type": "json_object"}
         body.update(temperature=0.2, max_tokens=max_tokens)
         url = _local_base(provider) + "/chat/completions"
+    def send():
+        # no 5xx retry: a local error (out of memory, crash) is not transient
+        r = _post(url, headers, body, retry_5xx=0, timeout=max(_timeout(), LOCAL_TIMEOUT))
+        if r.status_code in (400, 422) and body.pop("response_format", None):
+            # LM Studio only accepts json_schema; the prompt already asks for JSON
+            r = _post(url, headers, body, retry_5xx=0, timeout=max(_timeout(), LOCAL_TIMEOUT))
+        return r
+
     try:
-        # local servers pay a one-time model load (a 12B takes ~90 s cold):
-        # the request floor must cover it or the first call always fails
-        r = _post(url, headers, body, timeout=max(_timeout(), 120))
+        r = send()
     except AIError as e:
         # Ollama is often simply not running yet — `serve` is headless,
         # so we can start it ourselves and retry once before giving up.
         # A timeout means the server is up but the model is slow: restarting
-        # would not help, the fix is a longer AI timeout or a lighter model.
+        # would not help, the fix is a lighter model.
         if getattr(e, "kind", "") != "timeout" and provider == "ollama" and _ensure_local_server(provider):
             try:
-                r = _post(url, headers, body, timeout=max(_timeout(), 120))
+                r = send()
             except AIError as e2:
                 e, r = e2, None
         else:
             r = None
         if r is None:
             if getattr(e, "kind", "") == "timeout":
-                raise AIError(f"{_provider_name(provider)} met trop de temps à répondre. "
-                              "Augmente « Délai IA » dans Paramètres ou choisis un modèle plus léger.") from e
+                raise AIError(f"{_provider_name(provider)} n'a pas répondu en {LOCAL_TIMEOUT // 60} minutes : "
+                              "ce modèle est trop lourd pour cette machine, choisis-en un plus léger.") from e
             raise AIError(f"{_provider_name(provider)} inaccessible. Démarre son serveur local et vérifie l'adresse dans Paramètres.") from e
     if r.status_code >= 400:
         raise AIError(_explain_http(provider, r.status_code, r.text) +
@@ -520,7 +536,13 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
         p_keys = p_keys or [""]
     p_model = (cfg["models"].get(primary) or "").strip()
     if not p_model and primary in LOCAL_PROVIDERS:
-        p_model = _auto_pick_local_model(primary, want_vision=bool(b64_png))
+        p_model = _auto_pick_local_model(primary)
+        if not p_model:
+            raise AIError(
+                f"{_provider_name(primary)} : aucun modèle utilisable (serveur arrêté ou rien d'installé). "
+                + (f"Installe un modèle vision, par exemple : ollama pull {LOCAL_PULL_SUGGESTIONS[0]}"
+                   if primary == "ollama" else
+                   "Charge un modèle vision dans LM Studio et démarre son Local Server."))
     for k in p_keys:
         candidates.append((primary, k, p_model))
 
@@ -571,9 +593,10 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
             if cancel_event is not None and cancel_event.is_set():
                 raise AIError("Requête annulée.") from e
             err_msg = str(e)
-            if cand_provider == "gemini" and re.search(r"\(5\d\d\)", err_msg):
-                # "high demand" is model-level: the same key still works on a
-                # sibling model — try the healthy ones before abandoning Gemini
+            if cand_provider == "gemini" and re.search(r"\((5\d\d|429)\)", err_msg):
+                # "high demand" is model-level and free-tier quotas are counted
+                # per model: the same key still works on a sibling model — try
+                # the healthy ones before abandoning Gemini
                 avail = set((cfg.get("models_available") or {}).get("gemini") or [])
                 for alt in _GEMINI_MODEL_FALLBACKS:
                     if alt == cand_model or (avail and alt not in avail):
@@ -621,6 +644,8 @@ def chat_with_fallback(provider: str, prompt: str, system: str = "You are a help
                     pass
 
     # All candidates failed
+    if len(errors) == 1:
+        raise AIError(errors[0])    # one provider, one key: its error is the message
     full_detail = " | ".join(errors[:4])
     raise AIError(f"Tous les fournisseurs/clés ont échoué. Détails : {full_detail}")
 
@@ -642,11 +667,24 @@ def list_models(provider: str) -> list:
         try:
             headers = {"Authorization": f"Bearer {key}"} if key else {}
             url = _local_base(provider) + ("/api/tags" if provider == "ollama" else "/models")
-            r = _get(url, headers)
+            try:
+                r = _get(url, headers)
+            except AIError:
+                # the picker is where people first meet a stopped Ollama
+                if not _ensure_local_server(provider):
+                    return []
+                r = _get(url, headers)
             if r.status_code >= 400:
                 return []
             data = r.json()
-            return sorted(m["name"] for m in data.get("models", [])) if provider == "ollama" else sorted(m["id"] for m in data.get("data", []))
+            if provider != "ollama":
+                return sorted(m["id"] for m in data.get("data", []) if "embed" not in m["id"].lower())
+
+            # models the agent can use first: vision + chat, then vision, then text
+            def rank(m):
+                caps = m.get("capabilities") or []
+                return ("vision" not in caps, "tools" not in caps, m["name"])
+            return [m["name"] for m in sorted(filter(_can_chat, data.get("models", [])), key=rank)]
         except Exception:
             return []
     if not key:
@@ -659,9 +697,12 @@ def list_models(provider: str) -> list:
             out = []
             for m in r.json().get("models", []):
                 name = (m.get("name") or "").removeprefix("models/")
+                # generateContent is advertised by image/music/research models
+                # too, which cannot drive the agent or the chat
                 if any(x in name for x in ("embedding", "aqa", "imagen", "veo",
-                                           "tts", "native-audio", "image-generation",
-                                           "learnlm")):
+                                           "tts", "native-audio", "image",
+                                           "learnlm", "lyria", "banana", "transcribe",
+                                           "deep-research", "robotics", "computer-use")):
                     continue
                 methods = m.get("supportedGenerationMethods") or []
                 if methods and "generateContent" not in methods:

@@ -28,7 +28,8 @@ from .agent import AgentRun
 from .ai_client import AIError, chat, chat_with_fallback, list_models
 from .paths import app_root, load_dotenv_if_present
 from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_providers, load,
-                       migrate_legacy_keys, save, LOCAL_PROVIDERS, SPEEDS)
+                       migrate_legacy_keys, save, LOCAL_PROVIDERS, SPEEDS,
+                       SUGGESTED_MODELS, LOCAL_PULL_SUGGESTIONS)
 from .overlay import AgentOverlay
 from . import conversations
 from . import sessions, memory
@@ -142,6 +143,14 @@ S = {
                     "Could not load models — verify your API key."),
     "models_hint": ("Choisis dans la liste ou tape un nom de modèle.",
                     "Pick from the list or type an exact model name."),
+    "models_suggested": ("Modèles suggérés — « Charger modèles » affiche la liste complète de ta clé.",
+                         "Suggested models — “Load models” shows the full list for your key."),
+    "models_local": ("{n} modèles installés — ceux avec vision (utiles à l'agent) sont en tête.",
+                     "{n} installed models — vision-capable ones (needed by the agent) come first."),
+    "models_fail_local": ("Serveur local injoignable ou aucun modèle installé. Ollama : « ollama pull {pull} » ; "
+                          "LM Studio : charge un modèle et démarre le Local Server.",
+                          "Local server unreachable or no model installed. Ollama: “ollama pull {pull}”; "
+                          "LM Studio: load a model and start the Local Server."),
     "api_key": ("Clé API (stockée localement)", "API key (stored locally)"),
     "keys_hint": ("💡 Sépare plusieurs clés par une virgule pour un même fournisseur. L'agent bascule automatiquement si une clé atteint son quota.",
                   "💡 Separate multiple keys with commas for a provider. The agent will auto-fallback if quota is hit."),
@@ -525,7 +534,7 @@ class App:
         p_name = PROVIDER_LABELS.get(p, p)
         model = self.cfg.get("models", {}).get(p, "")
         self.badge.config(
-            text=f"{p_name}  ·  {mark}",
+            text=f"{p_name}  ·  {model}  ·  {mark}" if model else f"{p_name}  ·  {mark}",
             foreground=OK if key_ok else WARN,
         )
 
@@ -1991,10 +2000,15 @@ class App:
                 model_drafts[selected_provider] = model_cb.get().strip()
             p = PROVIDERS[provider_cb.current()]
             selected_provider = p
-            values = cache.get(p) or []
+            values = cache.get(p) or SUGGESTED_MODELS.get(p, [])
             model_cb.config(values=values)
             model_cb.delete(0, "end")
             model_cb.insert(0, model_drafts.get(p, ""))
+            if p in LOCAL_PROVIDERS:
+                do_load_models()    # installed models change: always ask the server
+            else:
+                models_lbl.config(text=T(lang, "models_hint" if cache.get(p) else "models_suggested"),
+                                  foreground=MUT)
 
         def do_load_models():
             p = PROVIDERS[provider_cb.current()]
@@ -2022,7 +2036,11 @@ class App:
                         if model_cb.get() not in models:
                             model_cb.current(0)
                     models_lbl.config(
-                        text=T(lang, "models_loaded", n=len(models)), foreground=OK)
+                        text=T(lang, "models_local" if p in LOCAL_PROVIDERS else "models_loaded",
+                               n=len(models)), foreground=OK)
+                elif p in LOCAL_PROVIDERS:
+                    models_lbl.config(text=T(lang, "models_fail_local", pull=LOCAL_PULL_SUGGESTIONS[0]),
+                                      foreground=ERR)
                 else:
                     models_lbl.config(text=T(lang, "models_fail"), foreground=ERR)
 
