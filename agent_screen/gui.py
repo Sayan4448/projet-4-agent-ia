@@ -1709,8 +1709,14 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def _next_automation(self):
-        if self._automation_queue and agent.active_run() is None:
-            self._run_automation(self._automation_queue.pop(0))
+        if not self._automation_queue:
+            return
+        if agent.active_run() is not None:
+            # a run is live — or just finished and still releasing the desktop
+            # (its 'finished' event reaches the UI before the release)
+            self.root.after(300, self._next_automation)
+            return
+        self._run_automation(self._automation_queue.pop(0))
 
     def _run_startup_automations(self):
         self._automation_queue = [a for a in automations.load_all() if a["at_startup"]]

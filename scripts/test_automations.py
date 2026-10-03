@@ -107,6 +107,28 @@ class AutomationTests(unittest.TestCase):
                     break
             self.assertEqual(started, ["dis bonjour", "donne la météo"])
 
+    def test_the_queue_waits_for_a_run_that_is_still_releasing(self):
+        """A run's 'finished' event reaches the UI before the run lets go of
+        the desktop: the next automation must wait, not be dropped."""
+        root = tk.Tk()
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        app = gui.App(root)
+        app._automation_queue = [{"id": "1", "name": "n", "target": "", "goal": "suite",
+                                  "at_startup": False}]
+        started = []
+        with patch.object(gui.agent, "active_run", side_effect=[object(), None, None]), \
+                patch.object(app, "_start_run",
+                             side_effect=lambda: started.append(app.goal_entry.get())):
+            app._next_automation()
+            self.assertEqual(started, [])             # busy: nothing yet, nothing lost
+            for _ in range(200):
+                root.update()
+                time.sleep(0.01)
+                if started:
+                    break
+        self.assertEqual(started, ["suite"])
+
 
 if __name__ == "__main__":
     unittest.main()

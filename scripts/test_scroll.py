@@ -104,6 +104,15 @@ class ScrollTests(unittest.TestCase):
         transient.assert_called_once()        # one discreet physical retry
         self.assertIn("Nothing moved", result["steps"][0]["summary"])
 
+    def test_the_watched_window_is_the_one_under_the_point(self):
+        """Scrolling a window that is not the active one: watching the active
+        window would report 'nothing moved' and scroll a second time."""
+        with patch.object(input_control, "action_window", return_value=777) as target, \
+                patch.object(display, "screen_fingerprint", return_value=()) as shot:
+            agent.AgentRun._sample(None, 640, 360)
+        target.assert_called_once_with(640, 360)
+        self.assertEqual(shot.call_args.kwargs["hwnd"], 777)
+
     def test_a_scroll_that_moved_is_a_plain_success(self):
         result, _virtual, transient = self._run_one_scroll([sample(), sample(9000)])
         transient.assert_not_called()

@@ -595,10 +595,11 @@ class AgentRun:
         return b64
 
     @staticmethod
-    def _sample(window=None) -> tuple:
-        """Fine sample of the target window, taken right before and right after
-        an action to see whether it visibly did anything."""
-        return display.screen_fingerprint(window, display.FINE, foreground=True)
+    def _sample(window=None, x=None, y=None) -> tuple:
+        """Fine sample of the window the action lands in, taken right before
+        and right after it to see whether it visibly did anything."""
+        return display.screen_fingerprint(window, display.FINE,
+                                          hwnd=input_control.action_window(x, y))
 
     def _scroll_verified(self, name: str, args: dict) -> dict:
         """Scroll with a "did anything move?" check. At the end of a list, or
@@ -608,17 +609,20 @@ class AgentRun:
         discreet physical retry (cursor restored)."""
         window = self.window_title if self.window_mode else None
         virtual = self.virtual_input and not self.game_mode
-        fp_pre = self._sample(window)
+        # the window under the point, which is not always the active one:
+        # watching the wrong window would report "nothing moved" and scroll twice
+        at = (args.get("x"), args.get("y"))
+        fp_pre = self._sample(window, *at)
         result = _virtual_action(name, args) if virtual else execute_action(name, args)
         self._stop.wait(0.35)               # smooth scrolling settles
-        if _changed(fp_pre, self._sample(window)):
+        if _changed(fp_pre, self._sample(window, *at)):
             return result
         if virtual and self.virtual_fallback and args.get("x") is not None:
             try:
                 result = input_control.transient_scroll(
                     args["amount"], args["y"], args["x"], horizontal=name == "mouse_hscroll")
                 self._stop.wait(0.35)
-                if _changed(fp_pre, self._sample(window)):
+                if _changed(fp_pre, self._sample(window, *at)):
                     return result
             except Exception:  # noqa: BLE001 - fall through to the honest report
                 pass

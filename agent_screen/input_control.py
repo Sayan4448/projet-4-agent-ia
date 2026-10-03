@@ -264,6 +264,19 @@ def _post(hwnd, msg, wparam=0, lparam=0) -> bool:
     return True
 
 
+def action_window(x=None, y=None):
+    """Top-level window an action lands in: the one under (x, y) when a point
+    is given, else the last virtually clicked one, else the active window.
+    This is the window to watch to know whether the action did anything."""
+    if os.name != "nt":
+        return None
+    user = ctypes.windll.user32
+    hwnd = _point_target(x, y)[0] if x is not None and y is not None else _v_hwnd[0]
+    if hwnd and user.IsWindow(hwnd):
+        return user.GetAncestor(ctypes.c_void_p(hwnd), GA_ROOT)
+    return user.GetForegroundWindow()
+
+
 def _focus_like_a_click(hwnd) -> None:
     """A real click gives focus to the clicked window: do the same without
     moving the cursor, so typing/keys then reach the right place."""
