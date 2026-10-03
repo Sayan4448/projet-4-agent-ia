@@ -3,7 +3,7 @@
 > **Renumérotation bêta** : le projet reste en bêta — les anciennes versions
 > `1.x` ont été renumérotées `0.1x` (1.0 → 0.10, 1.9.5 → 0.19.5, 2.0 → 0.20).
 
-## Non publié
+## 0.60.0 (bêta)
 
 - **« La frappe n'a produit aucun changement visible » corrigé à la racine** : le
   détecteur de changement faisait une moyenne sur tout l'écran — 0,02 pour un mot
