@@ -3,6 +3,54 @@
 > **Renumérotation bêta** : le projet reste en bêta — les anciennes versions
 > `1.x` ont été renumérotées `0.1x` (1.0 → 0.10, 1.9.5 → 0.19.5, 2.0 → 0.20).
 
+## Non publié
+
+- **« La frappe n'a produit aucun changement visible » corrigé à la racine** : le
+  détecteur de changement faisait une moyenne sur tout l'écran — 0,02 pour un mot
+  tapé, contre un seuil de 6. Toute frappe était donc jugée ignorée (puis collée
+  une seconde fois), les envois et les clics utiles semblaient sans effet. Il
+  compte maintenant les zones qui ont bougé dans la fenêtre active.
+- **Défilement réparé** : la molette physique n'envoyait que 3/120 de cran et le
+  défilement horizontal partait en vertical (limites de PyAutoGUI sous Windows) ;
+  une seule unité partout (crans de molette, annoncée au modèle) ; défiler sans
+  coordonnées ne plante plus (milieu de la fenêtre active) ; un défilement qui ne
+  bouge rien le dit après un essai physique discret ; le mode navigateur défile
+  sous le point visé ; dans les applis Chromium (Discord, Brave, Edge…) un cran
+  virtuel défilait deux fois trop (267 px contre 134 pour un vrai cran), corrigé.
+  Bancs d'essai réels : `scripts/smoke_scroll.py`, `scripts/smoke_typing.py`.
+- **Automatisations** : tâches enregistrées (ouvrir une appli/un lien sans appel
+  IA, lien Discord ouvert directement dans le groupe — Discord est remis au
+  premier plan même s'il était réduit —, objectif agent facultatif), à la
+  demande ou au démarrage de Windows.
+- **Interface** : onglets plats, barres de défilement fines, cases à cocher et
+  boutons radio redessinés, boutons et champs sans relief avec anneau d'accent au
+  focus, listes aérées, message d'accueil dans le Chat vide.
+- **Mode Agent local enfin utilisable** : le premier appel réel (12B vision,
+  carte 6 Go) prend ~190 s alors que l'app coupait à 120 s (180 s maximum) —
+  le plancher local passe à 10 minutes, Stop reste immédiat. Les consignes
+  fixes de l'agent (actions, format de réponse) passent dans le prompt
+  système : le serveur réutilise ce qu'il a déjà lu, ~45 s par étape au lieu
+  de ~155 s (et les caches de prompt cloud en profitent aussi). Contexte
+  Ollama fixé à 8192 jetons (les 4096 par défaut tronquaient la réponse).
+- **Choix automatique corrigé** : un Chat sans capture choisissait le plus
+  petit modèle texte (un « coder » 1B) et l'enregistrait — l'Agent tournait
+  ensuite à l'aveugle dessus. Un modèle vision est maintenant toujours préféré.
+- **Des modèles proposés partout** : le sélecteur liste seul les modèles
+  installés dès qu'on choisit Ollama/LM Studio (serveur Ollama démarré au
+  besoin, vision en tête, embeddings masqués) et propose des modèles connus
+  pour chaque fournisseur cloud avant même « Charger modèles ». La liste
+  Gemini n'affiche plus les modèles image/musique/transcription. Le modèle
+  utilisé est affiché dans la barre du haut.
+- **Erreurs locales lisibles** : le vrai message du serveur (mémoire
+  insuffisante, modèle introuvable) remplace « serveurs surchargés », sans
+  re-tentative ; « aucun modèle » indique quoi installer.
+- **LM Studio** : `response_format: json_object` refusé (400) faisait échouer
+  chaque décision de l'agent — nouvel essai automatique sans ce champ.
+- **Gemini** : un quota 429 essaie les modèles frères avec la même clé (les
+  quotas gratuits sont comptés par modèle), comme déjà pour les 503.
+- **OpenAI** : les modèles qui refusent `max_tokens` ou `temperature`
+  (gpt-5, série o) reçoivent `max_completion_tokens` / la température par défaut.
+
 ## 0.50.1 (bêta)
 
 - **Ollama réparé de bout en bout** : le serveur est relancé automatiquement

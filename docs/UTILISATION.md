@@ -97,6 +97,19 @@ entre deux appels automatiques. En l’absence de message, l’app compare local
 petites signatures de l’écran ; un écran inchangé ne consomme aucun appel IA. Stop reste
 disponible. Les limites se règlent dans Paramètres (5–240 min, 2–80 appels, 15–300 s).
 
+## Automatisations
+
+Bouton **⚡ Automatisations** en haut de la fenêtre. Une automatisation a un nom et :
+
+- **Ouvrir** *(sans appel IA, instantané)* : un nom d’appli (`discord`, `spotify`, `chrome`…), un lien web, ou un lien Discord. Pour arriver directement dans un groupe : dans Discord, clic droit sur un message du groupe → **Copier le lien du message**, puis coller le lien. L’app l’ouvre dans Discord (pas dans le navigateur), sur cette conversation.
+- **Puis demander à l’agent** *(facultatif)* : un objectif exécuté comme s’il était tapé dans la fenêtre, par exemple « dis bonjour à tout le monde ». Cette partie consomme des appels IA.
+
+**Lancer maintenant** l’exécute tout de suite. Pour le démarrage du PC : cocher « Lancer cette automatisation au démarrage » sur l’automatisation, et « Ouvrir l’application au démarrage de Windows » en bas de la fenêtre. L’app s’ouvre alors réduite à l’ouverture de session et joue les automatisations cochées, l’une après l’autre ; Stop annule celles qui restent.
+
+## Défilement
+
+L’agent défile en **crans de molette** (-3 = un peu vers le bas, -10 = environ une page), de préférence avec un point `x,y` situé dans la liste à faire défiler. Si rien ne bouge (fin de liste, point hors de la zone), l’agent en est informé au lieu de recommencer à l’aveugle.
+
 ## Montage vidéo, mouvement et audio
 
 Choisir le profil **Montage vidéo** pour utiliser Premiere Pro, CapCut ou DaVinci Resolve.

@@ -27,6 +27,8 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 
 ![Panneau d'activité de l'agent : journal des actions, dernière capture et discussion](docs/agent-panel.png)
 
+![Automatisations : ouvrir une appli ou un groupe Discord, à la demande ou au démarrage](docs/automations.png)
+
 ## Fonctionnalités
 
 | | Ce que vous pouvez faire |
@@ -35,9 +37,10 @@ comme Neural Agent ; aucune affiliation ni reprise de leur marque.
 | **Navigateur uniquement** | Piloter une session Edge/Chrome dédiée, sans injection de souris/clavier sur le bureau. |
 | **Curseur virtuel** | Flèche bleue qui reste à l’endroit du clic (5 s par défaut, réglable), halo animé, indicateur d’activité flottant. |
 | **Actions par capture** | **1 à 3** actions maximum (défaut : 3), avec nouvelle observation après un clic ou une navigation. |
-| **Souris indépendante** | Entrées virtuelles Windows par défaut, sans déplacer le pointeur ; certaines applications ne les acceptent pas. Aucun repli physique automatique. |
+| **Souris indépendante** | Entrées virtuelles Windows par défaut, sans déplacer le pointeur. Si une fenêtre les ignore : un seul essai physique discret (curseur remis en place), désactivable. |
+| **Automatisations** | Tâches enregistrées : ouvrir une appli ou un lien sans appel IA (un lien Discord arrive directement dans le groupe), puis un objectif pour l’agent si besoin. Lancement à la demande ou au démarrage de Windows. |
 | **Mémoire** | Préférences explicites partagées entre Chat et Agent, consultables, effaçables et désactivables dans les paramètres. |
-| **Apparence** | Couleur d’accent, taille du texte Chat et visibilité du bandeau réglables. |
+| **Apparence** | Deux styles (clair arrondi, sombre dense), couleur d’accent, taille du texte Chat et visibilité du bandeau réglables. |
 | **Mode éco** | Images limitées à 960 px, JPEG 60, historique réduit, captures intermédiaires désactivées. |
 | **IA cloud** | Six fournisseurs ; rotation des clés et bascule vers un autre fournisseur cloud configuré en cas d’échec. |
 | **IA locale** | Ollama et LM Studio, adresse configurable, liste des modèles et test de connexion. |
@@ -102,6 +105,22 @@ powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
 Voir [Développement](docs/DEVELOPPEMENT.md) pour la structure complète, les dépendances,
 les tests, la compilation, l’ajout d’actions et la publication des versions.
 
+## Crédits
+
+Le code de l’application est écrit pour ce projet ; aucun code n’est copié d’un autre dépôt. Elle s’appuie sur ces bibliothèques et services, chacun sous sa propre licence :
+
+| Brique | Rôle | Licence |
+|---|---|---|
+| [Pillow](https://github.com/python-pillow/Pillow) | Captures, grille, dessin des cases à cocher | MIT-CMU |
+| [PyAutoGUI](https://github.com/asweigart/pyautogui) | Souris/clavier physiques, arrêt d’urgence | BSD-3 |
+| [Playwright](https://github.com/microsoft/playwright-python) | Mode navigateur (Edge/Chrome installés) | Apache-2.0 |
+| [Requests](https://github.com/psf/requests) | Appels aux fournisseurs d’IA | Apache-2.0 |
+| [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) | Enregistrement vidéo MP4 | BSD-2 |
+| [PyInstaller](https://github.com/pyinstaller/pyinstaller) | Fabrication de l’exécutable | GPL-2.0 avec exception |
+| [Ollama](https://github.com/ollama/ollama), [LM Studio](https://lmstudio.ai) | Serveurs d’IA locale (API HTTP) | MIT / propriétaire |
+
+Techniques documentées reprises telles que décrites par leurs auteurs : molette et messages souris de l’API Win32 (`SendInput`, `WM_MOUSEWHEEL`, documentation Microsoft), liens profonds Discord (`discord://-/channels/…`, documentation développeur Discord), éléments image de ttk pour les cases à cocher (documentation Tk).
+
 ## Données et limites
 
 - Les clés et captures restent dans le dossier de données local, jamais dans le dépôt.
@@ -113,6 +132,7 @@ les tests, la compilation, l’ajout d’actions et la publication des versions.
   serveur peut toutefois être distante si vous la changez.
 - Le mode navigateur restreint les **outils de l’agent** à la page. Ce n’est pas un
   environnement sandbox de sécurité pour exécuter des pages malveillantes.
+- Une automatisation « au démarrage » avec objectif laisse l’agent agir sans personne devant l’écran : réservez-la à des tâches sans risque. La case « démarrage de Windows » ajoute une entrée visible dans le Gestionnaire des tâches → Démarrage.
 - La reconnaissance et la précision dépendent du modèle choisi. Les erreurs de quota
   (429) et un serveur local arrêté doivent être résolus côté fournisseur/serveur.
 - Stop interrompt l’attente de l’IA et les pauses. Une commande système ou une navigation

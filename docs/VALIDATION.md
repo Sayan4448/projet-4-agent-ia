@@ -16,6 +16,25 @@ Vérifications réalisées sur Windows le 21 septembre 2026.
 | MSI | Construction WiX réussie, extraction administrative réussie (code 0) |
 | Exécutable extrait du MSI | Diagnostic navigateur réussi |
 
+## Vérifications réelles du 3 octobre 2026 (branche IA locale / scroll / automatisations)
+
+Faites sur un PC Windows 11, 32 Go de RAM, Radeon RX 5600 XT 6 Go, Ollama 0.33.3.
+
+| Vérification | Résultat |
+|---|---|
+| Tous les fichiers `scripts/test_*.py` | 173 réussis, en local et sur GitHub Actions |
+| Frappe et envoi sur une page Chromium (`smoke_typing.py`) | 7/7 : « salut » tapé une fois, confirmé, envoyé une fois. Le code précédent donnait « salutsalut » et annonçait un échec |
+| Défilement sur de vraies fenêtres (`smoke_scroll.py`) | 9/9 : Tk et Chromium, virtuel et physique, vertical et horizontal ; un cran virtuel = un cran réel (133 px contre 134) |
+| Ollama arrêté puis sélecteur de modèles | Serveur relancé seul, 11 modèles listés, vision en tête |
+| Agent sur `gemma4:12b`, consignes complètes + capture | 1re étape 190 à 290 s (chargement compris), étapes suivantes 45 à 100 s ; run de 3 étapes sans erreur en 470 s |
+| Lien Discord dans une automatisation | Discord réduit → ramené au premier plan et positionné sur la conversation du lien |
+| Enregistrement « au démarrage de Windows » | Écriture, lecture et suppression vérifiées sur une clé de registre de test |
+| Lancement avec `--startup` | Fenêtre ouverte réduite, sans erreur |
+
+Non vérifié en réel : un vrai lien de groupe Discord (essai fait avec un identifiant
+factice), l’entrée de démarrage réelle de Windows, LM Studio, le repli Gemini sur
+quota 429 et les paramètres OpenAI (tests simulés uniquement).
+
 Le diagnostic du binaire peut être relancé sur un PC disposant d’Edge ou Chrome :
 
 ```powershell

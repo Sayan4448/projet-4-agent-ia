@@ -136,6 +136,8 @@ class BrowserSession:
                 raise ValueError("Raccourci indisponible : utilise open_url/search_web pour naviguer.")
             page.keyboard.press(SHORTCUTS[keys])
         elif name in ("mouse_scroll", "mouse_hscroll"):
+            if args.get("x") is not None and args.get("y") is not None:
+                page.mouse.move(*self.point(args))   # scroll the pane under the point
             amount = max(-5000, min(5000, int(args.get("amount", 0)) * 100))
             page.mouse.wheel(amount if name == "mouse_hscroll" else 0,
                              -amount if name == "mouse_scroll" else 0)

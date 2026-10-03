@@ -21,6 +21,22 @@ def _default_models() -> dict:
         "lmstudio": "",
     }
 
+# Shown in the model picker before the real list is loaded with the key
+# (first entry = the default above). Local providers list what is installed.
+SUGGESTED_MODELS = {
+    "gemini": ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash",
+               "gemini-2.5-flash-lite", "gemini-flash-latest"],
+    "openai": ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
+    "anthropic": ["claude-sonnet-4-5", "claude-haiku-4-5", "claude-sonnet-5-5", "claude-opus-5-5"],
+    "groq": ["meta-llama/llama-4-scout-17b-16e-instruct",
+             "meta-llama/llama-4-maverick-17b-128e-instruct"],
+    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "openrouter": ["google/gemini-2.5-flash", "google/gemini-2.5-flash-lite",
+                   "openai/gpt-4.1-mini", "anthropic/claude-sonnet-4.5"],
+}
+# Vision models worth installing when Ollama has none (lightest first).
+LOCAL_PULL_SUGGESTIONS = ("gemma3:4b", "qwen2.5vl:7b", "llama3.2-vision:11b")
+
 DEFAULTS = {
     "provider": "gemini",
     "api_keys": {p: "" for p in PROVIDERS},

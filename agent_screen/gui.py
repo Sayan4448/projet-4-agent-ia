@@ -25,10 +25,12 @@ from PIL import Image, ImageTk
 
 from . import __version__, agent, display, input_control, server
 from .agent import AgentRun
+from . import automations
 from .ai_client import AIError, chat, chat_with_fallback, list_models
 from .paths import app_root, load_dotenv_if_present
 from .settings import (PROVIDERS, get_api_key, get_provider_keys, get_available_providers, load,
-                       migrate_legacy_keys, save, LOCAL_PROVIDERS, SPEEDS)
+                       migrate_legacy_keys, save, LOCAL_PROVIDERS, SPEEDS,
+                       SUGGESTED_MODELS, LOCAL_PULL_SUGGESTIONS)
 from .overlay import AgentOverlay
 from . import conversations
 from . import sessions, memory
@@ -54,6 +56,9 @@ S = {
     "web_page": ("🌐 Page locale", "🌐 Local page"),
     "web_failed": ("page locale indisponible", "local page unavailable"),
     "history": ("🗂 Historique", "🗂 History"),
+    "automations": ("⚡ Automatisations", "⚡ Automations"),
+    "chat_empty": ("Aucun message pour l'instant — écris ci-dessous pour commencer.",
+                   "No message yet — type below to start."),
     "history_title": ("Historique des sessions de l’agent", "Agent session history"),
     "history_empty": ("Aucune session pour l’instant. Lance un objectif dans le mode Agent : il sera enregistré ici automatiquement.",
                       "No session yet. Run a goal in Agent mode: it will be saved here automatically."),
@@ -142,6 +147,14 @@ S = {
                     "Could not load models — verify your API key."),
     "models_hint": ("Choisis dans la liste ou tape un nom de modèle.",
                     "Pick from the list or type an exact model name."),
+    "models_suggested": ("Modèles suggérés — « Charger modèles » affiche la liste complète de ta clé.",
+                         "Suggested models — “Load models” shows the full list for your key."),
+    "models_local": ("{n} modèles installés — ceux avec vision (utiles à l'agent) sont en tête.",
+                     "{n} installed models — vision-capable ones (needed by the agent) come first."),
+    "models_fail_local": ("Serveur local injoignable ou aucun modèle installé. Ollama : « ollama pull {pull} » ; "
+                          "LM Studio : charge un modèle et démarre le Local Server.",
+                          "Local server unreachable or no model installed. Ollama: “ollama pull {pull}”; "
+                          "LM Studio: load a model and start the Local Server."),
     "api_key": ("Clé API (stockée localement)", "API key (stored locally)"),
     "keys_hint": ("💡 Sépare plusieurs clés par une virgule pour un même fournisseur. L'agent bascule automatiquement si une clé atteint son quota.",
                   "💡 Separate multiple keys with commas for a provider. The agent will auto-fallback if quota is hit."),
@@ -273,39 +286,71 @@ def apply_dark_theme(root: tk.Tk):
                     font=("Segoe UI", 9, "bold"))
     style.configure("TLabel", background=BG, foreground=TXT)
     style.configure("Card.TLabel", background=CARD, foreground=TXT)
-    style.configure("TButton", background=CARD, foreground=TXT, bordercolor=LINE,
-                    padding=(10, 5), font=("Segoe UI", 9))
-    style.map("TButton",
-              background=[("active", BTN_ACTIVE), ("disabled", BTN_DISABLED)],
-              foreground=[("disabled", FG_DISABLED)])
-    style.configure("Accent.TButton", background=ACC, foreground="#ffffff",
-                    font=("Segoe UI", 9, "bold"), bordercolor=ACC)
-    style.map("Accent.TButton",
-              background=[("active", ACC_HOVER), ("disabled", ACC_DIS_BG)],
-              foreground=[("disabled", ACC_DIS_FG)])
-    style.configure("Danger.TButton", background=DANGER_BG, foreground=DANGER_FG,
-                    font=("Segoe UI", 9, "bold"), bordercolor=DANGER_LINE)
-    style.map("Danger.TButton",
-              background=[("active", DANGER_ACTIVE), ("disabled", DANGER_DIS_BG)],
-              foreground=[("disabled", DANGER_DIS_FG)])
-    style.configure("TEntry", fieldbackground=FIELD, foreground=TXT,
-                    insertcolor=TXT, bordercolor=LINE, padding=4)
-    style.map("TEntry", bordercolor=[("focus", ACC)])
-    style.configure("TCombobox", fieldbackground=FIELD, foreground=TXT,
-                    background=CARD, bordercolor=LINE, arrowcolor=TXT, padding=3)
-    style.map("TCombobox", fieldbackground=[("readonly", FIELD)])
-    style.configure("TSpinbox", fieldbackground=FIELD, foreground=TXT,
-                    background=CARD, bordercolor=LINE, arrowcolor=TXT, padding=3)
-    style.configure("TCheckbutton", background=BG, foreground=TXT, font=("Segoe UI", 9))
-    style.map("TCheckbutton", background=[("active", BG)])
-    style.configure("TNotebook", background=BG, bordercolor=LINE)
-    style.configure("TNotebook.Tab", background=CARD, foreground=MUT,
-                    padding=(16, 8), font=("Segoe UI", 9, "bold"))
+    # clam paints a 3D bevel from lightcolor/darkcolor: matching them to the
+    # face makes every control flat, the border alone draws the shape
+    def flat(name, face, line, **kw):
+        style.configure(name, background=face, bordercolor=line, lightcolor=face,
+                        darkcolor=face, focuscolor=face, **kw)
+
+    def flat_states(name, active, disabled, disabled_fg):
+        style.map(name,
+                  background=[("active", active), ("disabled", disabled)],
+                  lightcolor=[("active", active), ("disabled", disabled)],
+                  darkcolor=[("active", active), ("disabled", disabled)],
+                  foreground=[("disabled", disabled_fg)])
+
+    flat("TButton", CARD, LINE, foreground=TXT, padding=(12, 6), font=("Segoe UI", 9))
+    flat_states("TButton", BTN_ACTIVE, BTN_DISABLED, FG_DISABLED)
+    flat("Accent.TButton", ACC, ACC, foreground="#ffffff", padding=(14, 6),
+         font=("Segoe UI", 9, "bold"))
+    flat_states("Accent.TButton", ACC_HOVER, ACC_DIS_BG, ACC_DIS_FG)
+    flat("Danger.TButton", DANGER_BG, DANGER_LINE, foreground=DANGER_FG, padding=(12, 6),
+         font=("Segoe UI", 9, "bold"))
+    flat_states("Danger.TButton", DANGER_ACTIVE, DANGER_DIS_BG, DANGER_DIS_FG)
+    for field in ("TEntry", "TCombobox", "TSpinbox"):
+        style.configure(field, fieldbackground=FIELD, foreground=TXT, insertcolor=TXT,
+                        background=FIELD, bordercolor=LINE, lightcolor=FIELD, darkcolor=FIELD,
+                        arrowcolor=MUT_LIGHT, arrowsize=13, padding=5)
+        # the focused field gets an accent ring (border + inner line)
+        style.map(field, bordercolor=[("focus", ACC)], lightcolor=[("focus", ACC)],
+                  darkcolor=[("focus", ACC)], fieldbackground=[("readonly", FIELD)],
+                  arrowcolor=[("active", ACC)])
+    _modern_indicators(root, style)
+    for toggle in ("TCheckbutton", "TRadiobutton"):
+        style.configure(toggle, background=BG, foreground=TXT, font=("Segoe UI", 9))
+        style.map(toggle, background=[("active", BG)], foreground=[("disabled", FG_DISABLED)])
+    # tabs: flat labels, the selected one is a light card with accent text
+    style.configure("TNotebook", background=BG, bordercolor=LINE, lightcolor=BG,
+                    darkcolor=BG, tabmargins=(0, 0, 0, 0))
+    style.configure("TNotebook.Tab", background=BG, foreground=MUT, bordercolor=BG,
+                    lightcolor=BG, darkcolor=BG, padding=(18, 9),
+                    font=("Segoe UI", 10, "bold"))
     style.map("TNotebook.Tab",
               background=[("selected", TAB_SEL), ("active", TAB_ACTIVE)],
-              foreground=[("selected", TXT), ("active", TXT)])
-    style.configure("Vertical.TScrollbar", background=CARD, bordercolor=BG,
-                    troughcolor=BG, arrowcolor=MUT)
+              lightcolor=[("selected", TAB_SEL), ("active", TAB_ACTIVE)],
+              bordercolor=[("selected", LINE)],
+              foreground=[("selected", ACC), ("active", TXT)],
+              padding=[("selected", (18, 9))], expand=[("selected", (0, 0, 0, 0))])
+    style.layout("TNotebook.Tab", [("Notebook.tab", {"sticky": "nswe", "children": [
+        ("Notebook.padding", {"side": "top", "sticky": "nswe", "children": [
+            ("Notebook.label", {"side": "top", "sticky": ""})]})]})])   # no dotted focus ring
+    # scrollbars: a slim thumb, no arrows
+    for orient, sticky in (("Vertical", "ns"), ("Horizontal", "ew")):
+        style.layout(f"{orient}.TScrollbar", [(f"{orient}.Scrollbar.trough", {
+            "sticky": sticky, "children": [
+                (f"{orient}.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+        style.configure(f"{orient}.TScrollbar", background=LINE, troughcolor=BG, bordercolor=BG,
+                        lightcolor=LINE, darkcolor=LINE, gripcount=0, arrowsize=9)
+        style.map(f"{orient}.TScrollbar", background=[("active", MUT), ("pressed", MUT)],
+                  lightcolor=[("active", MUT)], darkcolor=[("active", MUT)])
+    style.configure("Treeview", background=CARD, fieldbackground=CARD, foreground=TXT,
+                    bordercolor=LINE, lightcolor=CARD, darkcolor=CARD, rowheight=30,
+                    font=("Segoe UI", 9))
+    style.map("Treeview", background=[("selected", ACC)], foreground=[("selected", "#ffffff")])
+    style.configure("Treeview.Heading", background=BG, foreground=MUT_LIGHT, bordercolor=BG,
+                    lightcolor=BG, darkcolor=BG, relief="flat", padding=(6, 7),
+                    font=("Segoe UI", 9, "bold"))
+    style.map("Treeview.Heading", background=[("active", BG)])
     root.configure(background=BG)
     try:
         root.option_add("*TCombobox*Listbox.background", CARD)
@@ -313,6 +358,46 @@ def apply_dark_theme(root: tk.Tk):
         root.option_add("*TCombobox*Listbox.selectBackground", ACC)
     except Exception:
         pass
+
+
+def _modern_indicators(root, style):
+    """Checkbox and radio marks drawn with Pillow (4x then reduced, so they
+    are antialiased): clam's own are a crossed-out box and a grey dot.
+    A ttk image element is created once per Tk interpreter; the images are
+    kept on the root window, which is what keeps them alive."""
+    top = root._root()
+    if getattr(top, "_indicator_images", None):
+        return
+    from PIL import Image, ImageDraw, ImageTk
+
+    def draw(kind, on, enabled=True):
+        size = 72
+        edge = (ACC if on else MUT) if enabled else FG_DISABLED
+        im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        if kind == "check":
+            d.rounded_rectangle((6, 6, 66, 66), radius=18, width=6, outline=edge,
+                                fill=edge if on else FIELD)
+            if on:
+                d.line([(20, 37), (31, 48), (52, 25)], fill="#ffffff", width=8, joint="curve")
+        else:
+            d.ellipse((6, 6, 66, 66), width=6, outline=edge, fill=FIELD)
+            if on:
+                d.ellipse((23, 23, 49, 49), fill=edge)
+        return ImageTk.PhotoImage(im.resize((18, 18), Image.LANCZOS), master=top)
+
+    images = {(k, on, en): draw(k, on, en) for k in ("check", "radio")
+              for on in (False, True) for en in (False, True)}
+    top._indicator_images = images
+    for kind, widget in (("check", "Checkbutton"), ("radio", "Radiobutton")):
+        style.element_create(
+            f"Modern.{kind}", "image", images[(kind, False, True)],
+            ("disabled", "selected", images[(kind, True, False)]),
+            ("disabled", images[(kind, False, False)]),
+            ("selected", images[(kind, True, True)]), width=25, sticky="w")
+        style.layout(f"T{widget}", [(f"{widget}.padding", {"sticky": "nswe", "children": [
+            (f"Modern.{kind}", {"side": "left", "sticky": ""}),
+            (f"{widget}.label", {"side": "left", "sticky": "nswe"})]})])
 
 
 # ---------------------------------------------------------- rounded widgets
@@ -431,8 +516,11 @@ def _rounded_field(parent, font=("Segoe UI", 11), pad_y=10):
 
 # --------------------------------------------------------------------- app
 class App:
-    def __init__(self, root: tk.Tk):
+    AUTOMATION_SETTLE_MS = 2500   # let the opened app/link draw before the agent looks
+
+    def __init__(self, root: tk.Tk, startup: bool = False):
         self.root = root
+        self._automation_queue = []
         self.cfg = load()
         self.lang = self.cfg.get("language", "fr")
         self.q: "queue.Queue[dict]" = queue.Queue()
@@ -477,6 +565,11 @@ class App:
         self._refresh_badge()
         self.root.after(80, self._pump)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        if startup:
+            # started by Windows at sign-in: stay out of the way, then play
+            # the automations marked "au démarrage" once the desktop is up
+            self.root.iconify()
+            self.root.after(4000, self._run_startup_automations)
 
     def _(self, key, **kw) -> str:
         return T(self.lang, key, **kw)
@@ -514,6 +607,8 @@ class App:
                    command=self._show_screen_info).pack(side="right", padx=(6, 0))
         ttk.Button(bar, text=self._("history"), style="TButton",
                    command=self._open_history).pack(side="right")
+        ttk.Button(bar, text=self._("automations"), style="TButton",
+                   command=self._open_automations).pack(side="right", padx=(0, 6))
 
     def _refresh_badge(self):
         self.cfg = load()
@@ -525,7 +620,7 @@ class App:
         p_name = PROVIDER_LABELS.get(p, p)
         model = self.cfg.get("models", {}).get(p, "")
         self.badge.config(
-            text=f"{p_name}  ·  {mark}",
+            text=f"{p_name}  ·  {model}  ·  {mark}" if model else f"{p_name}  ·  {mark}",
             foreground=OK if key_ok else WARN,
         )
 
@@ -1498,6 +1593,9 @@ class App:
             if secs:
                 self._record("timing", f"durée totale : {secs}s")
             self._save_run_session(outcome)
+            if outcome == "stopped":
+                self._automation_queue.clear()
+            self.root.after(0, self._next_automation)
             if outcome == "done":
                 self._finish("✔")
             elif outcome == "stopped":
@@ -1580,6 +1678,165 @@ class App:
         self.log.see("end")
         self.log.config(state="disabled")
 
+    # ------------------------------------------------------------ automations
+    def _run_automation(self, item: dict):
+        """Open the target without the AI (off the UI thread: launching an app
+        waits for its window), then hand the goal, if any, to the agent."""
+        def done(result):
+            ok = not isinstance(result, dict) or result.get("ok") is not False
+            self._log(f"⚡ {item['name']} : " + ("ouvert" if ok else
+                      f"échec — {result.get('error', 'cible introuvable')}"))
+            self.status_lbl.config(text=f"⚡ {item['name']}", foreground=OK if ok else ERR)
+            if item["goal"]:
+                self.goal_entry.delete(0, "end")
+                self.goal_entry.insert(0, item["goal"])
+                self._start_run()           # its end calls _next_automation
+            else:
+                self._next_automation()
+
+        if not item["target"]:
+            done({"ok": True})
+            return
+
+        def worker():
+            try:
+                result = automations.open_target(item["target"])
+            except Exception as e:  # noqa: BLE001 - reported in the log, never fatal
+                result = {"ok": False, "error": str(e)}
+            self.q.put({"event": "ui_callback", "window": self.root, "callback": lambda: self.root.after(
+                self.AUTOMATION_SETTLE_MS if item["goal"] else 0, lambda: done(result))})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _next_automation(self):
+        if not self._automation_queue:
+            return
+        if agent.active_run() is not None:
+            # a run is live — or just finished and still releasing the desktop
+            # (its 'finished' event reaches the UI before the release)
+            self.root.after(300, self._next_automation)
+            return
+        self._run_automation(self._automation_queue.pop(0))
+
+    def _run_startup_automations(self):
+        self._automation_queue = [a for a in automations.load_all() if a["at_startup"]]
+        self._next_automation()
+
+    def _open_automations(self):
+        win = tk.Toplevel(self.root)
+        win.title("Automatisations")
+        win.geometry("760x560")
+        win.minsize(640, 480)
+        win.transient(self.root)
+        apply_dark_theme(win)
+        frm = ttk.Frame(win, padding=(18, 14))
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(1, weight=1)
+        frm.rowconfigure(1, weight=1)
+
+        ttk.Label(frm, text="Automatisations", font=("Segoe UI", 14, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        tree = ttk.Treeview(frm, columns=("target", "goal", "start"), height=7, selectmode="browse")
+        for col, title, width in (("#0", "Nom", 150), ("target", "Ouvre", 220),
+                                  ("goal", "Puis l'agent fait", 220), ("start", "Au démarrage", 100)):
+            tree.heading(col, text=title, anchor="w")
+            tree.column(col, width=width, anchor="w", stretch=col != "start")
+        tree.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=(10, 12))
+
+        fields = {}
+        for row, (key, label) in enumerate((("name", "Nom"), ("target", "Ouvrir (appli ou lien)"),
+                                            ("goal", "Puis demander à l'agent")), start=2):
+            ttk.Label(frm, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
+            fields[key] = ttk.Entry(frm)
+            fields[key].grid(row=row, column=1, sticky="ew", pady=3)
+        at_startup = tk.BooleanVar()
+        ttk.Checkbutton(frm, text="Lancer cette automatisation au démarrage",
+                        variable=at_startup).grid(row=5, column=1, sticky="w", pady=(2, 6))
+        ttk.Label(frm, foreground=MUT, wraplength=700, justify="left", font=("Segoe UI", 8), text=(
+            "« Ouvrir » ne consomme aucun appel IA : un nom d'appli (discord, spotify, chrome…), un lien web, "
+            "ou un lien Discord pour arriver directement dans un groupe — dans Discord, clic droit sur un "
+            "message du groupe → « Copier le lien du message », puis colle-le ici. "
+            "« Puis demander à l'agent » est facultatif (ex. : dis bonjour à tout le monde).")).grid(
+            row=6, column=0, columnspan=2, sticky="w")
+        info = ttk.Label(frm, text="", foreground=MUT, wraplength=700, justify="left")
+        selected = {"id": None}
+
+        def refresh(select=None):
+            tree.delete(*tree.get_children())
+            for a in automations.load_all():
+                tree.insert("", "end", iid=a["id"], text=a["name"],
+                            values=(a["target"], a["goal"], "✔" if a["at_startup"] else ""))
+            if select and tree.exists(select):
+                tree.selection_set(select)
+
+        def fill(item=None):
+            selected["id"] = item["id"] if item else None
+            for key, entry in fields.items():
+                entry.delete(0, "end")
+                entry.insert(0, item[key] if item else "")
+            at_startup.set(bool(item and item["at_startup"]))
+
+        def current():
+            return next((a for a in automations.load_all() if a["id"] == selected["id"]), None)
+
+        def on_select(_e=None):
+            picked = tree.selection()
+            if picked:
+                selected["id"] = picked[0]
+                fill(current())
+
+        def save_form():
+            try:
+                item = automations.save({"id": selected["id"], "at_startup": at_startup.get(),
+                                         **{k: e.get() for k, e in fields.items()}})
+            except (ValueError, OSError) as e:
+                info.config(text=str(e), foreground=ERR)
+                return None
+            selected["id"] = item["id"]
+            refresh(item["id"])
+            hint = ""
+            if item["at_startup"] and not automations.windows_startup_enabled():
+                hint = " Coche « Ouvrir l'application au démarrage de Windows » pour qu'elle se lance toute seule."
+            info.config(text="Enregistrée ✔" + hint, foreground=OK)
+            return item
+
+        def run_now():
+            item = save_form()
+            if item:
+                win.destroy()
+                self._automation_queue = [item]
+                self._next_automation()
+
+        def remove():
+            if selected["id"]:
+                automations.delete(selected["id"])
+                fill()
+                refresh()
+
+        def toggle_windows():
+            try:
+                automations.set_windows_startup(windows_var.get())
+                info.config(text=("L'application s'ouvrira au démarrage de Windows (réduite) et jouera les "
+                                  "automatisations cochées « au démarrage »." if windows_var.get() else
+                                  "L'application ne s'ouvre plus au démarrage de Windows."), foreground=OK)
+            except (OSError, ImportError) as e:
+                windows_var.set(automations.windows_startup_enabled())
+                info.config(text=f"Windows a refusé : {e}", foreground=ERR)
+
+        tree.bind("<<TreeviewSelect>>", on_select)
+        btns = ttk.Frame(frm)
+        btns.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 4))
+        ttk.Button(btns, text="Enregistrer", style="Accent.TButton", command=save_form).pack(side="left")
+        ttk.Button(btns, text="Lancer maintenant", command=run_now).pack(side="left", padx=8)
+        ttk.Button(btns, text="Nouvelle", command=lambda: (tree.selection_set(()), fill())).pack(side="left")
+        ttk.Button(btns, text="Supprimer", style="Danger.TButton", command=remove).pack(side="left", padx=8)
+        ttk.Button(btns, text=T(self.lang, "close"), command=win.destroy).pack(side="right")
+        windows_var = tk.BooleanVar(value=automations.windows_startup_enabled())
+        ttk.Checkbutton(frm, text="Ouvrir l'application au démarrage de Windows", variable=windows_var,
+                        command=toggle_windows).grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        info.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        refresh()
+
     # ------------------------------------------------------------ chat tab
     def _build_chat_tab(self):
         tab = self.tab_chat
@@ -1621,6 +1878,8 @@ class App:
         self.chat_view.tag_configure("bot_hdr", foreground=BOT_C, font=("Segoe UI", 10, "bold"), spacing1=12)
         self.chat_view.tag_configure("err_hdr", foreground=ERR, font=("Segoe UI", 10, "bold"), spacing1=12)
         self.chat_view.tag_configure("body", foreground=BODY_C, font=("Segoe UI", 10), spacing3=6)
+        self.chat_view.tag_configure("hint", foreground=MUT, font=("Segoe UI", 11),
+                                     justify="center", spacing1=140, spacing3=8)
 
         scroll = ttk.Scrollbar(tab, command=self.chat_view.yview)
         self.chat_view.configure(yscrollcommand=scroll.set)
@@ -1657,6 +1916,7 @@ class App:
                                         style="Accent.TButton", command=self._send_chat)
         self.chat_entry.bind("<Return>", lambda e: self._send_chat())
         self.chat_send.grid(row=0, column=1, padx=(8, 0))
+        self._render_chat()            # shows the empty-state hint
         self._refresh_chat_list()
         self._apply_appearance()
 
@@ -1701,6 +1961,8 @@ class App:
     def _render_chat(self):
         self.chat_view.config(state="normal")
         self.chat_view.delete("1.0", "end")
+        if not self.chat_history:      # an empty white box says nothing
+            self.chat_view.insert("end", T(self.lang, "chat_empty"), "hint")
         self.chat_view.config(state="disabled")
         for role, text, provider in self.chat_history:
             if role == "user":
@@ -1755,6 +2017,8 @@ class App:
 
     def _chat_append(self, who: str, text: str, tag: str = "assistant"):
         self.chat_view.config(state="normal")
+        if self.chat_view.tag_ranges("hint"):
+            self.chat_view.delete("1.0", "end")
         hdr_tag = "user_hdr" if tag == "user" else "bot_hdr" if tag == "assistant" else "err_hdr"
         self.chat_view.insert("end", f"{who}\n", hdr_tag)
         self.chat_view.insert("end", f"{text}\n\n", "body")
@@ -1991,10 +2255,15 @@ class App:
                 model_drafts[selected_provider] = model_cb.get().strip()
             p = PROVIDERS[provider_cb.current()]
             selected_provider = p
-            values = cache.get(p) or []
+            values = cache.get(p) or SUGGESTED_MODELS.get(p, [])
             model_cb.config(values=values)
             model_cb.delete(0, "end")
             model_cb.insert(0, model_drafts.get(p, ""))
+            if p in LOCAL_PROVIDERS:
+                do_load_models()    # installed models change: always ask the server
+            else:
+                models_lbl.config(text=T(lang, "models_hint" if cache.get(p) else "models_suggested"),
+                                  foreground=MUT)
 
         def do_load_models():
             p = PROVIDERS[provider_cb.current()]
@@ -2022,7 +2291,11 @@ class App:
                         if model_cb.get() not in models:
                             model_cb.current(0)
                     models_lbl.config(
-                        text=T(lang, "models_loaded", n=len(models)), foreground=OK)
+                        text=T(lang, "models_local" if p in LOCAL_PROVIDERS else "models_loaded",
+                               n=len(models)), foreground=OK)
+                elif p in LOCAL_PROVIDERS:
+                    models_lbl.config(text=T(lang, "models_fail_local", pull=LOCAL_PULL_SUGGESTIONS[0]),
+                                      foreground=ERR)
                 else:
                     models_lbl.config(text=T(lang, "models_fail"), foreground=ERR)
 
@@ -2464,9 +2737,11 @@ def main():
     migrate_legacy_keys()      # explicit, once: reading a config never writes one
     if getattr(sys, "frozen", False):
         os.chdir(app_root())
+    startup = automations.STARTUP_FLAG in sys.argv
     while True:
         root = tk.Tk()
-        app = App(root)
+        app = App(root, startup=startup)
+        startup = False            # a settings restart must not replay them
         root.mainloop()
         if app.restart_requested:
             continue

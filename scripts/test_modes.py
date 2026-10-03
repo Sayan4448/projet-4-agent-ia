@@ -86,8 +86,8 @@ class ModesTests(unittest.TestCase):
         session.close.assert_called_once()
         for unused in (desktop, virtual, release, mouse_up, grab):
             unused.assert_not_called()
-        self.assertNotIn("run_terminal_command", chat.call_args.kwargs["prompt"])
-        self.assertIn("up to 2 actions", chat.call_args.kwargs["prompt"])
+        self.assertNotIn("run_terminal_command", chat.call_args.kwargs["system"])
+        self.assertIn("up to 2 actions", chat.call_args.kwargs["system"])
 
     def test_capture_limit_cannot_exceed_three(self):
         for enabled in (True, False):
@@ -461,7 +461,7 @@ class ModesTests(unittest.TestCase):
         tags.json.return_value = {"models": [
             {"name": "nomic-embed-text:latest", "capabilities": ["embedding"]}]}
         with patch.object(ai_client, "_get", return_value=tags):
-            self.assertEqual(ai_client._auto_pick_local_model("ollama", want_vision=True), "")
+            self.assertEqual(ai_client._auto_pick_local_model("ollama"), "")
 
     def test_ollama_autostart_retries_failed_request_once(self):
         ok = Mock(status_code=200)
